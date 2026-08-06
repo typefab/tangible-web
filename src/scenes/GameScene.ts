@@ -3,6 +3,8 @@ import { GRID, TIMING, BLOCKS, Z, RANGES, PLAYER, JOYSTICK, type BlockType } fro
 import { GridPlacement } from '../mechanics/GridPlacement';
 import { Player } from '../mechanics/Player';
 import { VirtualJoystick } from '../mechanics/VirtualJoystick';
+import { Inventory } from '../mechanics/Inventory';
+import { InventoryBar } from '../ui/InventoryBar';
 import { LevelEditor } from '../editor/LevelEditor';
 
 interface LevelData {
@@ -20,6 +22,8 @@ export class GameScene extends Phaser.Scene {
   private editor?: LevelEditor;
   private player?: Player;
   private joystick?: VirtualJoystick;
+  private inventory?: Inventory;
+  private inventoryBar?: InventoryBar;
   private keys?: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
   private readonly moveVector = new Phaser.Math.Vector2();
   private pointerHeld = false;
@@ -70,6 +74,26 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.player = new Player(this, this.scale.width / 2, this.scale.height / 2);
       this.joystick = new VirtualJoystick(this);
+
+      this.inventory = new Inventory();
+      // Scorta di partenza, cosi' si puo' costruire subito.
+      this.inventory.add('block_0', 20);
+      this.inventory.add('block_1', 5);
+      this.inventoryBar = new InventoryBar(this, this.inventory);
+
+      // Il joystick deve stare sopra la barra: su telefono si sovrapporrebbero.
+      const liftJoystick = () => this.joystick?.setBottomInset(this.inventoryBar?.height ?? 0);
+      liftJoystick();
+      // Registrato dopo quello di InventoryBar, che ricalcola prima la sua altezza.
+      this.scale.on(Phaser.Scale.Events.RESIZE, liftJoystick);
+
+      // Rompere un blocco lo restituisce all'inventario.
+      this.placement.onBlockBroken = (type) => {
+        this.inventory?.add(type);
+        this.inventoryBar?.refresh();
+        this.refreshHud();
+      };
+
       this.keys = this.input.keyboard?.addKeys({
         up: Phaser.Input.Keyboard.KeyCodes.W,
         down: Phaser.Input.Keyboard.KeyCodes.S,
@@ -142,10 +166,19 @@ export class GameScene extends Phaser.Scene {
       // Cella occupata -> inizia a rompere. Cella vuota -> piazza subito.
       if (this.placement.isOccupied(col, row)) {
         this.placement.beginBreak(col, row);
-      } else {
-        this.placement.place(col, row);
-        this.refreshHud();
+        return;
       }
+
+      // Si controlla prima se il piazzamento e' possibile: altrimenti il
+      // blocco verrebbe scalato dall'inventario e perso.
+      if (!this.placement.canPlace(col, row)) return;
+
+      const type = this.inventory?.consumeSelected();
+      if (!type) return;
+
+      this.placement.place(col, row, type);
+      this.inventoryBar?.refresh();
+      this.refreshHud();
     });
 
     this.input.on(Phaser.Input.Events.POINTER_UP, () => {
@@ -165,9 +198,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // 1 / 2 per cambiare slot di inventario.
-    this.input.keyboard?.on('keydown-ONE', () => this.select('block_0'));
-    this.input.keyboard?.on('keydown-TWO', () => this.select('block_1'));
+    // La selezione degli slot (tasti 1..8) e' gestita da InventoryBar.
   }
 
   /** Evidenzia la cella sotto il puntatore. Attiva in entrambe le modalita'. */
@@ -185,22 +216,18 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private select(type: BlockType): void {
-    this.placement.selected = type;
-    this.refreshHud();
-  }
-
   private refreshHud(): void {
     if (this.editor) {
       this.hud.setText(`MODALITA EDITOR\nesci togliendo ?editor=1 dall URL`);
       return;
     }
 
-    const label = BLOCKS[this.placement.selected].label;
+    const type = this.inventory?.selectedType;
+    const label = type ? BLOCKS[type].label : 'vuoto';
     this.hud.setText(
       [
-        `Slot: ${label}  (1 / 2 per cambiare)`,
-        `Blocchi: ${this.placement.count}`,
+        `Slot ${(this.inventory?.selected ?? 0) + 1}: ${label}  (tasti 1-8)`,
+        `Blocchi in scena: ${this.placement.count}`,
         `Tocca vuoto = piazza | Tieni premuto ${TIMING.breakTimeMs / 1000}s = rompi`,
         `Muoviti col joystick o WASD | portata ${RANGES.placementRange}px`,
       ].join('\n'),

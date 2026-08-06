@@ -20,6 +20,8 @@ export class VirtualJoystick {
   /** id del puntatore che sta guidando il joystick, null se fermo. */
   private activePointerId: number | null = null;
   private origin = new Phaser.Math.Vector2();
+  /** Spazio riservato in basso, es. alla barra dell'inventario. */
+  private bottomInset = 0;
 
   /** Direzione corrente, gia' normalizzata. (0,0) se fermo. */
   readonly direction = new Phaser.Math.Vector2();
@@ -52,10 +54,19 @@ export class VirtualJoystick {
     scene.input.on(Phaser.Input.Events.POINTER_UP, this.onUp, this);
   }
 
+  /**
+   * Riserva spazio in fondo allo schermo: su telefono la barra
+   * dell'inventario finirebbe sotto il joystick.
+   */
+  setBottomInset(pixels: number): void {
+    this.bottomInset = pixels;
+    this.reposition();
+  }
+
   /** Il joystick vive in basso a sinistra, ancorato allo schermo. */
   private reposition(): void {
     const { height } = this.scene.scale;
-    this.origin.set(JOYSTICK.margin, height - JOYSTICK.margin);
+    this.origin.set(JOYSTICK.margin, height - JOYSTICK.margin - this.bottomInset);
     this.base.setPosition(this.origin.x, this.origin.y);
     this.thumb.setPosition(this.origin.x, this.origin.y);
   }

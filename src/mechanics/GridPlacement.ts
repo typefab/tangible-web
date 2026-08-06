@@ -25,6 +25,9 @@ export class GridPlacement {
   /** Tipo di blocco attualmente selezionato (lo slot di inventario). */
   selected: BlockType = 'block_0';
 
+  /** Chiamato quando un blocco viene rotto: serve a restituirlo all'inventario. */
+  onBlockBroken?: (type: BlockType) => void;
+
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
   }
@@ -73,6 +76,15 @@ export class GridPlacement {
     });
     out.sort((a, b) => a.row - b.row || a.col - b.col);
     return out;
+  }
+
+  /**
+   * True se un piazzamento andrebbe a buon fine adesso. Da controllare prima
+   * di scalare il blocco dall'inventario, per non consumarlo a vuoto.
+   */
+  canPlace(col: number, row: number): boolean {
+    if (this.scene.time.now - this.lastPlacementAt < TIMING.placementCooldownMs) return false;
+    return !this.isOccupied(col, row);
   }
 
   /**
@@ -160,7 +172,9 @@ export class GridPlacement {
 
     if (this.breakProgress >= 1) {
       const cell = GridPlacement.worldToCell(this.breakTarget.x, this.breakTarget.y);
+      const type = this.breakTarget.getData('type') as BlockType;
       this.remove(cell.col, cell.row);
+      this.onBlockBroken?.(type);
     }
   }
 }

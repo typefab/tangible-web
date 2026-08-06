@@ -36,6 +36,17 @@ export const PLAYER = {
   speed: 190,
 } as const;
 
+export const INVENTORY = {
+  /** 8 slot, come nel progetto GDevelop (SlotIndex 0-7). */
+  slots: 8,
+  /** Lato dello slot a schermo pieno; su telefono viene ridotto in proporzione. */
+  slotSize: 96,
+  /** Se questa texture esiste viene usata come sfondo dello slot. */
+  slotTexture: 'inventory_slot',
+  /** Quanti blocchi entrano in uno slot. */
+  stackLimit: 99,
+} as const;
+
 export const JOYSTICK = {
   borderTexture: 'joystick_border',
   thumbTexture: 'joystick_thumb',
