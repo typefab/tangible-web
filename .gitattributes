@@ -1,0 +1,5 @@
+# I runner delle GitHub Actions sono Linux: uno script con terminatori CRLF
+# fallisce ("\r: command not found"). Forziamo LF su tutto il testo.
+* text=auto eol=lf
+
+*.png binary

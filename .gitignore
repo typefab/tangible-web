@@ -1,0 +1,9 @@
+node_modules/
+dist/
+
+# Generata al volo da `npx cap add android` durante la build APK:
+# non va versionata.
+android/
+
+*.local
+.DS_Store
