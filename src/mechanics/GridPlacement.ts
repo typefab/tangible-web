@@ -63,6 +63,19 @@ export class GridPlacement {
   }
 
   /**
+   * Tutti i blocchi piazzati, in forma serializzabile. Ordinati per riga e poi
+   * colonna, cosi' il level.json esportato ha un diff stabile su git.
+   */
+  list(): { col: number; row: number; type: BlockType }[] {
+    const out = [...this.blocks.entries()].map(([key, sprite]) => {
+      const [col, row] = key.split(',').map(Number) as [number, number];
+      return { col, row, type: sprite.getData('type') as BlockType };
+    });
+    out.sort((a, b) => a.row - b.row || a.col - b.col);
+    return out;
+  }
+
+  /**
    * Piazza un blocco per input del giocatore: soggetto a cooldown.
    * Ritorna false se la cella e' occupata o se il cooldown non e' scaduto.
    */

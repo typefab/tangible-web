@@ -45,6 +45,27 @@ Da abilitare una volta sola: *Settings → Pages → Source: GitHub Actions*.
 build l'APK e' negli *Artifacts* della run. Sul telefono va autorizzata
 l'installazione da origini sconosciute (e' un APK debug, non firmato).
 
+## L'editor di scene
+
+Aggiungi **`?editor=1`** all'URL del gioco:
+
+```
+https://<utente>.github.io/<repo>/?editor=1
+```
+
+Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
+
+- **tocca una cella vuota** -> piazza un blocco del tipo selezionato
+- **tocca un blocco** -> lo toglie
+- i pulsanti in basso scelgono il tipo di blocco
+- **Scarica level.json** salva il file; **Copia JSON** lo mette negli appunti
+
+Poi carichi il file in `public/assets/../level.json` dalla UI web di GitHub
+(`Add file` -> `Upload files`, e **ricordati il pulsante verde `Commit changes`**
+in fondo alla pagina).
+
+Per tornare a giocare basta togliere `?editor=1`.
+
 ## Cosa tocchi tu
 
 | File | Cosa contiene |

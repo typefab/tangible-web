@@ -1,16 +1,21 @@
 import Phaser from 'phaser';
 import { GRID, TIMING, BLOCKS, Z, type BlockType } from '../config';
 import { GridPlacement } from '../mechanics/GridPlacement';
+import { LevelEditor } from '../editor/LevelEditor';
 
 interface LevelData {
   blocks: { col: number; row: number; type: BlockType }[];
 }
+
+/** Modalita' editor: si attiva con ?editor=1 nell'URL. */
+const EDITOR_MODE = new URLSearchParams(location.search).has('editor');
 
 export class GameScene extends Phaser.Scene {
   private placement!: GridPlacement;
   private hitbox!: Phaser.GameObjects.Rectangle;
   private breakBar!: Phaser.GameObjects.Rectangle;
   private hud!: Phaser.GameObjects.Text;
+  private editor?: LevelEditor;
   private pointerHeld = false;
 
   constructor() {
@@ -48,7 +53,12 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(Z.placeHitbox);
 
-    this.bindInput();
+    this.bindCellPreview();
+    if (EDITOR_MODE) {
+      this.editor = new LevelEditor(this, this.placement);
+    } else {
+      this.bindInput();
+    }
     this.refreshHud();
   }
 
@@ -97,8 +107,6 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
       const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
-      const { x, y } = GridPlacement.cellToWorld(col, row);
-      this.hitbox.setPosition(x, y).setVisible(true);
 
       // Se il dito scivola su un'altra cella, la rottura riparte da capo.
       if (this.pointerHeld && this.placement.isOccupied(col, row)) {
@@ -113,12 +121,26 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-TWO', () => this.select('block_1'));
   }
 
+  /** Evidenzia la cella sotto il puntatore. Attiva in entrambe le modalita'. */
+  private bindCellPreview(): void {
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
+      const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
+      const { x, y } = GridPlacement.cellToWorld(col, row);
+      this.hitbox.setPosition(x, y).setVisible(true);
+    });
+  }
+
   private select(type: BlockType): void {
     this.placement.selected = type;
     this.refreshHud();
   }
 
   private refreshHud(): void {
+    if (this.editor) {
+      this.hud.setText(`MODALITA EDITOR\nesci togliendo ?editor=1 dall URL`);
+      return;
+    }
+
     const label = BLOCKS[this.placement.selected].label;
     this.hud.setText(
       [
