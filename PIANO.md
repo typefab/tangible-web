@@ -1,6 +1,6 @@
 # Piano di lavoro — Tangible Cushion
 
-Documento di riferimento sulle scelte di architettura e sui prossimi passi.
+Documento di riferimento su scelte di architettura, stato e prossimi passi.
 Ultimo aggiornamento: 6 agosto 2026.
 
 ---
@@ -9,13 +9,13 @@ Ultimo aggiornamento: 6 agosto 2026.
 
 Sostituire la pipeline attuale (progetto GDevelop monolitico, modificato con
 script Python) con un flusso in cui **GitHub e' il ponte** tra chi cura grafica
-e livelli e chi scrive le meccaniche.
+e scene e chi scrive le meccaniche.
 
 ### Divisione dei ruoli
 
 | Chi | Fa cosa | Tocca |
 |---|---|---|
-| **Fabrizio** | Sprite, creazione scene, disposizione, test | `public/` |
+| **Fabrizio** | Sprite, creazione scene, disposizione, test | `public/`, in futuro `src/assets/` |
 | **Claude Code (browser)** | Oggetti e meccaniche, come codice | `src/` |
 | **GitHub** | Il ponte tra i due | tutto |
 
@@ -45,7 +45,7 @@ un repository GitHub.
 | Construct 3 | si | **no** | si / si | escluso |
 | Godot web editor | si | **no** | parziale / no | escluso |
 | PlayCanvas | si | si | si / da incartare | unico alternativo |
-| **Repo + editor nostro** | da costruire | si | si / si | **scelto** |
+| **Repo + editor nostro** | costruito | si | si / si | **scelto** |
 
 Note di verifica:
 
@@ -56,39 +56,27 @@ Note di verifica:
 - **microStudio**: nessuna integrazione git nella documentazione ufficiale. Il
   tab "Sync" sincronizza un progetto microStudio con un altro progetto
   microStudio, non con repository esterni.
-- **PlayCanvas**: alternativa reale e verificata. Ha integrazione GitHub
-  ufficiale e il tool `pcsync` e' bidirezionale (`push` e `pull`), gli basta
-  una API key da variabile d'ambiente, quindi puo' girare in una GitHub Action.
-  Scartato perche' e' un engine 3D/WebGL usato per un gioco 2D, perche' il
-  `push` sovrascrive il remoto (rischio di perdere lavoro se si modifica da
+- **PlayCanvas**: alternativa reale e verificata. Integrazione GitHub ufficiale
+  e tool `pcsync` bidirezionale (`push`/`pull`), che gira anche in CI con una
+  API key. Scartato perche' e' un engine 3D/WebGL usato per un gioco 2D, perche'
+  il `push` sovrascrive il remoto (rischio di perdere lavoro modificando da
   entrambi i lati), e perche' il piano gratuito rende i progetti pubblici.
   ([pcsync](https://github.com/playcanvas/playcanvas-sync))
 
 **La scelta**: il repository non e' la copia del progetto, **e' il progetto**.
 Phaser e' una libreria dentro il repo, non un'applicazione da cui esportare.
-Cosi' non esiste nessun silo da sincronizzare.
 
 ### L'editor di scene
 
-Il vincolo 3 non e' soddisfatto da questa scelta, quindi l'editor lo
-costruiamo: una **modalita' editor dentro il gioco stesso**, servita dallo
-stesso URL di GitHub Pages.
+Il vincolo 3 non e' soddisfatto da questa scelta, quindi l'editor e' stato
+costruito: una **modalita' editor dentro il gioco stesso**, sullo stesso URL.
 
-Perche' regge:
-
-- e' online e sempre apribile — e' una pagina web
-- scrive **esattamente** i file che l'LLM legge, per costruzione
-- gira sul dominio `github.io` gia' in uso: nessun servizio nuovo di cui fidarsi
-- riusa `GridPlacement`, gia' scritto e testato
-
-Perche' costa poco: il gioco e' **a griglia**. Niente rotazioni libere, forme di
-collisione o layer arbitrari — solo celle 32x32 e un tipo di blocco per cella.
-Stima: 300-400 righe.
+Perche' regge: e' online e sempre apribile, scrive esattamente i file che
+l'LLM legge, gira sul dominio gia' in uso (nessun servizio nuovo di cui
+fidarsi) e riusa il codice di gioco gia' testato.
 
 L'obiezione standard ("non reinventarlo, usa Tiled o LDtk") non si applica:
-sono entrambi desktop, quindi esclusi dal vincolo 1. L'unico editor browser
-equivalente e' Sprite Fusion, che pero' e' solo tilemap generico e richiede un
-ponte manuale (esporta JSON, ricarica su GitHub a mano).
+sono entrambi desktop, esclusi dal vincolo 1.
 
 ---
 
@@ -101,84 +89,162 @@ ponte manuale (esporta JSON, ricarica su GitHub a mano).
                         ├──> upload drag&drop ──> repo <────── codice (src/)
  scene: editor del      ┘                          │
         gioco stesso                               │
-        (GitHub Pages)                             │
+        (?editor=1)                                │
                                   GitHub Actions <─┘
-                                   ├── Pages ──> si gioca al link, anche da telefono
+                                   ├── Pages ──> si gioca al link
                                    └── APK ────> si installa sul telefono
 ```
 
+**Accesso all'editor:** `https://<utente>.github.io/<repo>/?editor=1`
+
+**Sincronizzazione con Claude Code online:** si collega il repository su
+`claude.ai/code`. E' la stessa `main` su cui si lavora da locale: non c'e'
+niente da configurare.
+
 ---
 
-## 4. Stato attuale
+## 4. Scelte tecniche
+
+### Griglia isometrica
+
+La griglia e' **isometrica a rombi, rapporto 2:1 (64x32)**. Il progetto
+GDevelop usava una griglia ortogonale 32x32; e' stata cambiata su richiesta.
+
+Non si usa l'isometria geometricamente esatta (30 gradi, 1.732:1) perche' su
+pixel art produce bordi frastagliati: con il 2:1 le diagonali cadono su pixel
+interi.
+
+La geometria e' isolata in `src/grid/projection.ts` dietro un'unica interfaccia
+(`cellToWorld`, `worldToCell`, `depthFor`, `cellOutline`). Nessun altro file sa
+che forma abbia una cella: cambiare proiezione significa cambiare una riga.
+L'implementazione ortogonale resta disponibile come alternativa.
+
+Conseguenze: la griglia disegna il perimetro di ogni cella invece di linee da
+bordo a bordo; l'evidenziazione della cella e' un poligono; la profondita' e'
+`col + row`.
+
+### Costanti
+
+Le costanti di gioco stanno in `src/config.ts`, portate 1:1 dalla tabella di
+`gdevelop_repository/CLAUDE.md`: break 1,5s, cooldown 100ms, portata 224px,
+oscillazione `sin(t*18)*10` gradi, 8 slot di inventario.
+
+---
+
+## 5. Stato attuale
 
 ### Fatto e verificato
 
-Prototipo funzionante, build pulita (TypeScript + Vite + Phaser 3).
-Logica testata pilotando lo stato nel browser:
+| Componente | File | Note |
+|---|---|---|
+| Piazzamento e rottura su griglia | `mechanics/GridPlacement.ts` | cooldown, break progressivo, callback di raccolta |
+| Proiezione isometrica | `grid/projection.ts` | ortogonale disponibile come alternativa |
+| Player | `mechanics/Player.ts` | sprite dal progetto GDevelop, origine ai piedi |
+| Joystick virtuale | `mechanics/VirtualJoystick.ts` | multitouch, sprite `Transparent dark` |
+| Inventario 8 slot | `mechanics/Inventory.ts` | solo stato e regole, testabile senza schermo |
+| Barra inventario | `ui/InventoryBar.ts` | segnaposto se manca lo sprite, si adatta a schermi stretti |
+| Editor di scene | `editor/LevelEditor.ts` | `?editor=1`, esporta `level.json` |
 
-| Test | Esito |
+Test principali superati:
+
+- inversa isometrica: **0 errori su 8000 punti campionati** con test di
+  punto-in-poligono; round-trip sui centri: 0 errori su 625 celle
+- bilancio inventario chiuso: 20 -> piazza -> 19 -> tentativi bloccati che non
+  consumano -> rompi -> 20
+- rottura: progresso 0.5 a 750ms, oscillazione 8.04 gradi, distruzione a 1500ms
+- cooldown: 99ms rifiutato, 101ms accettato
+- movimento: 190px in 1s, -95px in 0.5s
+- joystick: deadzone, diagonale normalizzata a 0.71, pollice clampato a 56px,
+  secondo dito che non ruba il controllo
+- nessuna sovrapposizione barra/joystick a 375x812 (48px di margine)
+- la build passa su Linux: `npm ci`, `npm run build`, upload artefatto
+
+### Bug trovati e corretti
+
+1. **`time.now === 0` dentro `create()`**: il cooldown scartava anche il primo
+   piazzamento, quindi il livello caricava 0 blocchi. Risolto separando il
+   caricamento batch (`spawn`) dall'input del giocatore (`place`).
+2. **Inversa isometrica sbagliata**: normalizzava sul centro della cella invece
+   che sul vertice superiore, e divideva per meta' tile invece che per il tile
+   intero. Il round-trip sui centri tornava lo stesso, ma **il 74% dei punti
+   finiva nel rombo sbagliato**. Scoperto campionando l'area, non i centri.
+3. **Sovrapposizione barra/joystick su telefono**: visibile solo a 375x812.
+   Il joystick ora si alza dell'altezza della barra.
+4. **CRLF nelle GitHub Actions**: Git su Windows avrebbe convertito gli script
+   shell, che sul runner Linux falliscono con `\r: command not found`. Prevenuto
+   con `.gitattributes`.
+
+### Non verificato
+
+- **L'aspetto visivo non e' mai stato visto.** Il game loop non gira nel
+  pannello browser dell'ambiente di sviluppo (`frames: 0`): tutta la logica e'
+  stata verificata pilotando lo stato, non guardando lo schermo.
+- **Le GitHub Actions non hanno mai completato una run.** Il job `build` ha
+  eseguito tutti i 15 step con successo, ma la pubblicazione non e' mai
+  avvenuta a causa dell'avaria (vedi sotto).
+- **L'APK non e' mai stato prodotto.**
+
+### Avaria GitHub del 6 agosto 2026
+
+Actions e Pages in `major_outage` dalle 15:22 UTC, impatto `critical`.
+Sintomi osservati e corrispondenza con i bollettini ufficiali:
+
+| Osservato | Bollettino |
 |---|---|
-| `cellToWorld(2,6)` -> `(96, 224)` | offset (16,16) esatto |
-| Caricamento `level.json` | 10/10 blocchi |
-| Piazzamento su cella occupata | rifiutato |
-| Cooldown 100 ms | 99 ms rifiutato, 101 ms accettato |
-| Rottura a 750 ms | progresso 0.5, oscillazione 8.04 gradi (dentro +/-10) |
-| Rottura a 1500 ms | blocco distrutto, stato ripulito |
-| Global di debug nel build di produzione | 0 occorrenze |
+| Run `cancelled` con zero step | "workflow runs failing to start" |
+| Job appeso con tutti gli step verdi | "jobs may remain queued... or may time out" |
+| API `cancel` che risponde 502 | "requests to the Actions API are returning errors" |
+| Sito 404 | Pages in major_outage |
 
-Bug trovato e corretto: dentro `create()` Phaser ha `time.now === 0`, quindi il
-cooldown scartava anche il primo piazzamento (il livello caricava 0 blocchi).
-Risolto separando il caricamento batch (`spawn`) dall'input del giocatore
-(`place`).
+Pagina: <https://www.githubstatus.com/incidents/qcvjkzcs7j74>
 
-Costanti portate 1:1 da `gdevelop_repository/CLAUDE.md` in `src/config.ts`.
-
-### Non ancora verificato
-
-- **Le due GitHub Actions non sono mai state eseguite.** Girano solo su GitHub.
-  Sono costruite su pattern standard (Capacitor + `gradlew assembleDebug`), ma
-  la prima run potrebbe richiedere aggiustamenti.
-- **Il rendering visivo non e' stato visto.** Il game loop non gira nel
-  pannello browser dell'ambiente di sviluppo (`frames: 0`): la logica e'
-  verificata, l'aspetto no.
+Nessuna azione correttiva possibile: quando rientra, il deploy riparte al
+primo push.
 
 ---
 
-## 5. Prossimi passi
+## 6. Struttura dei file, prossima
 
-1. **Push del repo su GitHub** — serve l'account di Fabrizio.
-2. **Abilitare Pages**: *Settings -> Pages -> Source: GitHub Actions*.
-   Il gioco diventa raggiungibile a `https://<utente>.github.io/<repo>/`.
-3. **Prima run delle Actions**: verificare che il deploy web funzioni e che
-   *Actions -> Build APK -> Run workflow* produca un APK installabile.
-4. **Costruire la modalita' editor** — toggle, palette dei blocchi, esporta
-   `level.json`. Salvataggio v1: scarichi il JSON e lo carichi su GitHub.
-5. **Riportare le meccaniche** una alla volta: inventario a 8 slot, joystick
-   touch, raccolta dei blocchi caduti.
+Oggi `public/assets/` e' un mucchio piatto di 54 file con nomi come
+`NewSprite10.png`. Struttura proposta:
 
-Salvataggio v2 (piu' avanti): il pulsante *Salva* dell'editor committa da solo
-via API GitHub, eliminando il passaggio manuale.
+```
+src/assets/
+  blocks/        dirt.png, stone.png…
+  characters/    player.png
+  ui/            joystick-border.png, inventory-slot.png
+  props/
+public/data/
+  level.json     <- prodotto dall'editor
+```
 
----
+Due regole: **la cartella decide la categoria, il nome del file decide l'id.**
 
-## 6. Cosa si porta dietro dal vecchio progetto
-
-Riutilizzabile integralmente:
-
-- gli asset in `gdevelop_repository/assets/`
-- `architecture.md`, `decisions.md`, `patterns.md` e la tabella delle costanti
-
-Il gioco attuale e' considerato **sacrificabile**: la struttura e' documentata e
-le meccaniche si riscrivono. Non si tenta nessuna conversione automatica del
-JSON GDevelop.
+Motivo tecnico per cui va in `src/` e non in `public/`: una pagina web non puo'
+elencare il contenuto di una cartella. Da `public/` l'editor non saprebbe cosa
+c'e' dentro e servirebbe un elenco scritto a mano; da `src/` Vite genera
+l'elenco al momento della build. Cosi' **si carica un PNG, si fa commit, e
+compare nell'editor** senza modifiche al codice. Prezzo: serve una build, cioe'
+il tempo del deploy.
 
 ---
 
-## 7. Rischi aperti
+## 7. Prossimi passi
 
-| Rischio | Mitigazione |
+1. **Ristrutturazione cartelle + rinomina dei 54 file** — sblocca il resto
+2. **Pannello sprite con miniature + pennello** — il grosso del valore
+3. **Selezione, spostamento, cancellazione nell'editor**
+4. Quando GitHub rientra: verificare deploy web e produrre il primo APK
+5. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+
+---
+
+## 8. Rischi aperti
+
+| Rischio | Note |
 |---|---|
-| Le Actions non funzionano alla prima | Iterare sui log; i pattern sono standard |
-| L'editor risulta troppo spartano | Cresce a richiesta; si valuta Sprite Fusion come ripiego |
-| Phaser 3 vs Phaser 4 | Il prototipo gira su Phaser 3.90, stabile. Nessuna fretta di migrare |
-| Il ciclo commit -> gioco live e' ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |
+| **L'arte non e' isometrica** | `Block_0` e' una cassa frontale. Su griglia a rombi le facce non combaciano: va ridisegnata. E' lavoro di grafica |
+| Aspetto visivo mai visto | Scala del player, posizione del joystick e dimensione dei blocchi sono valori scelti a tavolino |
+| Le Actions non hanno mai completato | La build passa, la pubblicazione no. Da riverificare a guasto risolto |
+| L'editor risulta troppo spartano | Cresce a richiesta |
+| Ciclo commit -> gioco live ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |

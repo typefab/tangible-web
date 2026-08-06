@@ -58,13 +58,16 @@ Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
 - **tocca una cella vuota** -> piazza un blocco del tipo selezionato
 - **tocca un blocco** -> lo toglie
 - i pulsanti in basso scelgono il tipo di blocco
+- **Griglia: on/off** nasconde le linee per guardare la scena pulita; lo snap
+  resta comunque attivo
 - **Scarica level.json** salva il file; **Copia JSON** lo mette negli appunti
 
-Poi carichi il file in `public/assets/../level.json` dalla UI web di GitHub
+Poi carichi il file in `public/level.json` dalla UI web di GitHub
 (`Add file` -> `Upload files`, e **ricordati il pulsante verde `Commit changes`**
 in fondo alla pagina).
 
-Per tornare a giocare basta togliere `?editor=1`.
+In editor non c'e' il personaggio: si costruisce ovunque, senza il vincolo di
+portata. Per tornare a giocare basta togliere `?editor=1`.
 
 ## Cosa tocchi tu
 
@@ -78,17 +81,24 @@ Per tornare a giocare basta togliere `?editor=1`.
 | File | Cosa contiene |
 |---|---|
 | `src/config.ts` | Le costanti di gioco, portate 1:1 dalla tabella di `CLAUDE.md`. |
+| `src/grid/` | La geometria della griglia, isolata dietro un'interfaccia. |
 | `src/mechanics/` | Le meccaniche. Una classe per meccanica, autonoma e testabile. |
+| `src/ui/` | Barra dell'inventario e altri elementi di interfaccia. |
 | `src/scenes/` | Montaggio della scena e input. |
 
 ## Cosa e' gia' implementato e verificato
 
-- Griglia 32x32 con offset (16,16), identica al progetto GDevelop
+- **Griglia isometrica a rombi** 2:1 (64x32), con la geometria isolata in
+  `src/grid/projection.ts`: cambiarla significa cambiare una riga
 - Piazzamento su cella libera, con cooldown di 100 ms
 - Rottura tenendo premuto 1,5 s, con oscillazione `sin(t * 18) * 10` gradi
-- Due tipi di blocco (`block_0`, `block_1`), tasti `1` e `2` per cambiare slot
+- **Player** con movimento da joystick virtuale (multitouch) o WASD
+- **Portata di piazzamento** 224px: la cella diventa rossa se troppo lontana
+- **Inventario a 8 slot**: rompere restituisce il blocco, piazzare lo consuma
 - Caricamento della disposizione iniziale da `level.json`
-- Profondita' per riga (piu' in basso = davanti)
+- Profondita' `col + row`, corretta per l'isometrica
+
+Dettagli, verifiche e rischi aperti stanno in [PIANO.md](PIANO.md).
 
 ## Sviluppo locale (facoltativo — non serve per il workflow online)
 
