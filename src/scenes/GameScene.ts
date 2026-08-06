@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { GRID, TIMING, BLOCKS, Z, RANGES, PLAYER, JOYSTICK, type BlockType } from '../config';
+import { GRID, ISO, TIMING, BLOCKS, Z, RANGES, PLAYER, JOYSTICK, type BlockType } from '../config';
+import { projection } from '../grid/projection';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import { Player } from '../mechanics/Player';
 import { VirtualJoystick } from '../mechanics/VirtualJoystick';
@@ -16,7 +17,10 @@ const EDITOR_MODE = new URLSearchParams(location.search).has('editor');
 
 export class GameScene extends Phaser.Scene {
   private placement!: GridPlacement;
-  private hitbox!: Phaser.GameObjects.Rectangle;
+  /** Le celle sono rombi, quindi l'evidenziazione e' un poligono, non un rettangolo. */
+  private hitbox!: Phaser.GameObjects.Graphics;
+  private gridLines!: Phaser.GameObjects.Graphics;
+  private hoverCenter = new Phaser.Math.Vector2();
   private breakBar!: Phaser.GameObjects.Rectangle;
   private hud!: Phaser.GameObjects.Text;
   private editor?: LevelEditor;
@@ -48,15 +52,11 @@ export class GameScene extends Phaser.Scene {
     this.loadLevel();
 
     // Anteprima della cella sotto il dito/mouse.
-    this.hitbox = this.add
-      .rectangle(0, 0, GRID.cellSize, GRID.cellSize)
-      .setStrokeStyle(2, 0xffd166)
-      .setDepth(Z.placeHitbox)
-      .setVisible(false);
+    this.hitbox = this.add.graphics().setDepth(Z.placeHitbox).setVisible(false);
 
     // Barra di avanzamento della rottura.
     this.breakBar = this.add
-      .rectangle(0, 0, GRID.cellSize, 4, 0xff5c5c)
+      .rectangle(0, 0, ISO.tileWidth, 4, 0xff5c5c)
       .setOrigin(0, 0.5)
       .setDepth(Z.placeHitbox)
       .setVisible(false);
@@ -130,18 +130,38 @@ export class GameScene extends Phaser.Scene {
     return v;
   }
 
-  /** Griglia di riferimento, allineata all'offset (16,16) del terreno. */
+  /**
+   * Griglia di riferimento. Disegna il perimetro di ogni cella invece di
+   * linee da bordo a bordo: cosi' funziona con qualsiasi proiezione, rombi
+   * compresi, senza sapere che forma abbiano.
+   */
   private drawGrid(): void {
-    const g = this.add.graphics().setDepth(-1000);
-    g.lineStyle(1, 0x2f2f3d, 1);
+    this.gridLines = this.add.graphics().setDepth(-1000);
+    this.gridLines.lineStyle(1, 0x2f2f3d, 1);
 
-    const { width, height } = this.scale;
-    for (let x = GRID.offsetX; x <= width; x += GRID.cellSize) {
-      g.lineBetween(x, 0, x, height);
+    for (let row = GRID.drawFrom; row <= GRID.drawTo; row++) {
+      for (let col = GRID.drawFrom; col <= GRID.drawTo; col++) {
+        const points = projection.cellOutline(col, row);
+        this.gridLines.strokePoints(points, true);
+      }
     }
-    for (let y = GRID.offsetY; y <= height; y += GRID.cellSize) {
-      g.lineBetween(0, y, width, y);
-    }
+  }
+
+  /** Mostra o nasconde le linee della griglia. Usato dal bottone nell'editor. */
+  setGridVisible(visible: boolean): void {
+    this.gridLines.setVisible(visible);
+  }
+
+  get gridVisible(): boolean {
+    return this.gridLines.visible;
+  }
+
+  /** Evidenzia il rombo della cella indicata. */
+  private highlightCell(col: number, row: number, color: number): void {
+    this.hitbox.clear();
+    this.hitbox.lineStyle(2, color, 1);
+    this.hitbox.strokePoints(projection.cellOutline(col, row), true);
+    this.hitbox.setVisible(true);
   }
 
   /** Carica la disposizione iniziale da level.json. */
@@ -208,11 +228,9 @@ export class GameScene extends Phaser.Scene {
 
       const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
       const { x, y } = GridPlacement.cellToWorld(col, row);
+      this.hoverCenter.set(x, y);
       // Giallo se ci puoi costruire, rosso se sei troppo lontano.
-      this.hitbox
-        .setPosition(x, y)
-        .setVisible(true)
-        .setStrokeStyle(2, this.inRange(col, row) ? 0xffd166 : 0xff5c5c);
+      this.highlightCell(col, row, this.inRange(col, row) ? 0xffd166 : 0xff5c5c);
     });
   }
 
@@ -242,8 +260,8 @@ export class GameScene extends Phaser.Scene {
     if (progress > 0) {
       this.breakBar
         .setVisible(true)
-        .setPosition(this.hitbox.x - GRID.cellSize / 2, this.hitbox.y + GRID.cellSize / 2 + 6)
-        .setDisplaySize(GRID.cellSize * progress, 4);
+        .setPosition(this.hoverCenter.x - ISO.tileWidth / 2, this.hoverCenter.y + ISO.tileHeight / 2 + 6)
+        .setDisplaySize(ISO.tileWidth * progress, 4);
     } else {
       this.breakBar.setVisible(false);
     }

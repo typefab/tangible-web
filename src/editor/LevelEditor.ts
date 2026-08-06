@@ -13,6 +13,12 @@ import { GridPlacement } from '../mechanics/GridPlacement';
  * appunti usano le API del browser, e i pulsanti restano comodi da toccare
  * anche su telefono.
  */
+/** I metodi della scena che l'editor usa, senza importarla (eviterebbe un ciclo). */
+interface GameSceneLike extends Phaser.Scene {
+  setGridVisible(visible: boolean): void;
+  readonly gridVisible: boolean;
+}
+
 export class LevelEditor {
   private readonly scene: Phaser.Scene;
   private readonly placement: GridPlacement;
@@ -94,6 +100,22 @@ export class LevelEditor {
 
     this.countLabel = document.createElement('span');
     this.root.appendChild(this.countLabel);
+
+    // Nasconde le linee della griglia per guardare la scena pulita.
+    // Lo snap resta comunque attivo: si tocca sempre una cella.
+    const grid = document.createElement('button');
+    const syncGridLabel = () => {
+      const on = (this.scene as GameSceneLike).gridVisible;
+      grid.textContent = on ? 'Griglia: on' : 'Griglia: off';
+      grid.setAttribute('aria-pressed', String(on));
+    };
+    grid.onclick = () => {
+      const s = this.scene as GameSceneLike;
+      s.setGridVisible(!s.gridVisible);
+      syncGridLabel();
+    };
+    syncGridLabel();
+    this.root.appendChild(grid);
 
     const copy = document.createElement('button');
     copy.textContent = 'Copia JSON';

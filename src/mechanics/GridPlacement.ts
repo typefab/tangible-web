@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { GRID, TIMING, BLOCKS, type BlockType } from '../config';
+import { ISO, TIMING, BLOCKS, type BlockType } from '../config';
+import { projection } from '../grid/projection';
 
 /**
  * Meccanica: piazzamento e rottura di blocchi su griglia.
@@ -39,18 +40,12 @@ export class GridPlacement {
 
   /** Converte una coordinata mondo nella cella di griglia che la contiene. */
   static worldToCell(x: number, y: number): { col: number; row: number } {
-    return {
-      col: Math.floor((x - GRID.offsetX) / GRID.cellSize),
-      row: Math.floor((y - GRID.offsetY) / GRID.cellSize),
-    };
+    return projection.worldToCell(x, y);
   }
 
   /** Centro in coordinate mondo di una cella. Le origini sono al centro. */
   static cellToWorld(col: number, row: number): { x: number; y: number } {
-    return {
-      x: GRID.offsetX + col * GRID.cellSize + GRID.cellSize / 2,
-      y: GRID.offsetY + row * GRID.cellSize + GRID.cellSize / 2,
-    };
+    return projection.cellToWorld(col, row);
   }
 
   isOccupied(col: number, row: number): boolean {
@@ -109,9 +104,10 @@ export class GridPlacement {
 
     const { x, y } = GridPlacement.cellToWorld(col, row);
     const sprite = this.scene.add.sprite(x, y, BLOCKS[type].texture);
-    sprite.setDisplaySize(GRID.cellSize, GRID.cellSize);
-    // zOrder per profondita': piu' in basso = davanti.
-    sprite.setDepth(row);
+    // Largo quanto il rombo, altezza in proporzione: gli sprite dei blocchi
+    // sono piu' alti della cella perche' mostrano anche la faccia frontale.
+    sprite.setDisplaySize(ISO.tileWidth, sprite.height * (ISO.tileWidth / sprite.width));
+    sprite.setDepth(projection.depthFor(col, row));
     sprite.setData('type', type);
 
     this.blocks.set(GridPlacement.key(col, row), sprite);

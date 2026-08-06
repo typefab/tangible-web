@@ -10,6 +10,26 @@ export const GRID = {
   /** Il terreno ha 16px di offset rispetto all'origine scena. */
   offsetX: 16,
   offsetY: 16,
+  /** Intervallo di celle disegnate come griglia di riferimento. */
+  drawFrom: 0,
+  drawTo: 24,
+} as const;
+
+/**
+ * Griglia isometrica a rombi.
+ *
+ * Rapporto 2:1 (64x32): e' lo standard nei giochi perche' le diagonali cadono
+ * su pixel interi. L'isometria geometricamente esatta sarebbe 1.732:1 (30
+ * gradi), che su pixel art produce bordi frastagliati.
+ *
+ * L'origine e' il punto dove si trova il vertice superiore della cella (0,0).
+ * Va spostata a destra perche' le celle con row > col hanno x negativa.
+ */
+export const ISO = {
+  tileWidth: 64,
+  tileHeight: 32,
+  originX: 480,
+  originY: 48,
 } as const;
 
 export const TIMING = {
