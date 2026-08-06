@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
-import { GRID, TIMING, BLOCKS, Z, type BlockType } from '../config';
+import { GRID, TIMING, BLOCKS, Z, RANGES, PLAYER, JOYSTICK, type BlockType } from '../config';
 import { GridPlacement } from '../mechanics/GridPlacement';
+import { Player } from '../mechanics/Player';
+import { VirtualJoystick } from '../mechanics/VirtualJoystick';
 import { LevelEditor } from '../editor/LevelEditor';
 
 interface LevelData {
@@ -16,6 +18,10 @@ export class GameScene extends Phaser.Scene {
   private breakBar!: Phaser.GameObjects.Rectangle;
   private hud!: Phaser.GameObjects.Text;
   private editor?: LevelEditor;
+  private player?: Player;
+  private joystick?: VirtualJoystick;
+  private keys?: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
+  private readonly moveVector = new Phaser.Math.Vector2();
   private pointerHeld = false;
 
   constructor() {
@@ -25,6 +31,9 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     this.load.image('block_normal', 'assets/block_normal.png');
     this.load.image('block_stack', 'assets/block_stack.png');
+    this.load.image(PLAYER.texture, 'assets/Gemini_Generated_Image_ic56toic56toic56-removebg-preview.png');
+    this.load.image(JOYSTICK.borderTexture, 'assets/Transparent dark joystick border2.png');
+    this.load.image(JOYSTICK.thumbTexture, 'assets/Transparent dark joystick thumb2.png');
     this.load.json('level', 'level.json');
   }
 
@@ -55,11 +64,46 @@ export class GameScene extends Phaser.Scene {
 
     this.bindCellPreview();
     if (EDITOR_MODE) {
+      // In editor niente personaggio: si guarda la scena dall'alto e si
+      // costruisce ovunque, senza il vincolo di portata.
       this.editor = new LevelEditor(this, this.placement);
     } else {
+      this.player = new Player(this, this.scale.width / 2, this.scale.height / 2);
+      this.joystick = new VirtualJoystick(this);
+      this.keys = this.input.keyboard?.addKeys({
+        up: Phaser.Input.Keyboard.KeyCodes.W,
+        down: Phaser.Input.Keyboard.KeyCodes.S,
+        left: Phaser.Input.Keyboard.KeyCodes.A,
+        right: Phaser.Input.Keyboard.KeyCodes.D,
+      }) as Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key> | undefined;
       this.bindInput();
     }
     this.refreshHud();
+  }
+
+  /** True se la cella e' abbastanza vicina al Player per costruirci. */
+  private inRange(col: number, row: number): boolean {
+    if (!this.player) return true;
+    const { x, y } = GridPlacement.cellToWorld(col, row);
+    return Phaser.Math.Distance.Between(this.player.x, this.player.y, x, y) <= RANGES.placementRange;
+  }
+
+  /** Direzione di marcia: joystick se attivo, altrimenti WASD. */
+  private readMoveVector(): Phaser.Math.Vector2 {
+    const v = this.moveVector.set(0, 0);
+
+    if (this.joystick && (this.joystick.direction.x !== 0 || this.joystick.direction.y !== 0)) {
+      return v.copy(this.joystick.direction);
+    }
+
+    if (this.keys) {
+      if (this.keys.left.isDown) v.x -= 1;
+      if (this.keys.right.isDown) v.x += 1;
+      if (this.keys.up.isDown) v.y -= 1;
+      if (this.keys.down.isDown) v.y += 1;
+      if (v.x !== 0 || v.y !== 0) v.normalize();
+    }
+    return v;
   }
 
   /** Griglia di riferimento, allineata all'offset (16,16) del terreno. */
@@ -88,8 +132,13 @@ export class GameScene extends Phaser.Scene {
 
   private bindInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
+      // Il dito che guida il joystick non piazza e non rompe.
+      if (this.joystick?.owns(p)) return;
+
       this.pointerHeld = true;
       const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
+      if (!this.inRange(col, row)) return;
+
       // Cella occupata -> inizia a rompere. Cella vuota -> piazza subito.
       if (this.placement.isOccupied(col, row)) {
         this.placement.beginBreak(col, row);
@@ -124,9 +173,15 @@ export class GameScene extends Phaser.Scene {
   /** Evidenzia la cella sotto il puntatore. Attiva in entrambe le modalita'. */
   private bindCellPreview(): void {
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
+      if (this.joystick?.owns(p)) return;
+
       const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
       const { x, y } = GridPlacement.cellToWorld(col, row);
-      this.hitbox.setPosition(x, y).setVisible(true);
+      // Giallo se ci puoi costruire, rosso se sei troppo lontano.
+      this.hitbox
+        .setPosition(x, y)
+        .setVisible(true)
+        .setStrokeStyle(2, this.inRange(col, row) ? 0xffd166 : 0xff5c5c);
     });
   }
 
@@ -147,11 +202,13 @@ export class GameScene extends Phaser.Scene {
         `Slot: ${label}  (1 / 2 per cambiare)`,
         `Blocchi: ${this.placement.count}`,
         `Tocca vuoto = piazza | Tieni premuto ${TIMING.breakTimeMs / 1000}s = rompi`,
+        `Muoviti col joystick o WASD | portata ${RANGES.placementRange}px`,
       ].join('\n'),
     );
   }
 
-  override update(): void {
+  override update(_time: number, delta: number): void {
+    this.player?.update(delta, this.readMoveVector());
     this.placement.update();
 
     const progress = this.placement.breakProgress;

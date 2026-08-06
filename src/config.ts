@@ -27,6 +27,26 @@ export const RANGES = {
   placementRange: 224,
 } as const;
 
+export const PLAYER = {
+  texture: 'player',
+  /** Lo sprite sorgente e' 317x788: due celle di altezza, larghezza in proporzione. */
+  height: GRID.cellSize * 2,
+  width: Math.round(GRID.cellSize * 2 * (317 / 788)),
+  /** Pixel al secondo. */
+  speed: 190,
+} as const;
+
+export const JOYSTICK = {
+  borderTexture: 'joystick_border',
+  thumbTexture: 'joystick_thumb',
+  /** Raggio entro cui il pollice si muove, in pixel schermo. */
+  radius: 56,
+  /** Sotto questa frazione del raggio il movimento e' considerato fermo. */
+  deadZone: 0.15,
+  /** Margine dal bordo in basso a sinistra. */
+  margin: 96,
+} as const;
+
 export const Z = {
   /** Sempre sopra i blocchi ordinati per profondita'. */
   placeHitbox: 9999,
