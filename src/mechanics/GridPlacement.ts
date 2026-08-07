@@ -114,6 +114,18 @@ export class GridPlacement {
     return true;
   }
 
+  /**
+   * Svuota la scena. Serve all'undo dell'editor, che ripristina uno stato
+   * ricostruendolo da zero invece di invertire le singole operazioni: con
+   * poche centinaia di blocchi conviene, ed e' molto piu' difficile da
+   * sbagliare di un command pattern.
+   */
+  clear(): void {
+    this.cancelBreak();
+    for (const sprite of this.blocks.values()) sprite.destroy();
+    this.blocks.clear();
+  }
+
   /** Rimuove il blocco nella cella, se c'e'. */
   remove(col: number, row: number): boolean {
     const key = GridPlacement.key(col, row);
