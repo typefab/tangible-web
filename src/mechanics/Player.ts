@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { PLAYER } from '../config';
+import { PLAYER, Z } from '../config';
+import { projection } from '../grid/projection';
 
 /**
  * Il personaggio giocante.
@@ -17,6 +18,21 @@ export class Player {
     // Origine ai piedi: cosi' la profondita' si confronta con la riga di griglia
     // su cui il personaggio poggia, non con la sua testa.
     this.sprite.setOrigin(0.5, 1);
+    // Da fermo la profondita' va comunque calcolata: senza questa riga il
+    // personaggio resterebbe a depth 0 e sparirebbe dietro i blocchi fino al
+    // primo passo.
+    this.refreshDepth();
+  }
+
+  /**
+   * Allinea il personaggio all'ordinamento dei blocchi.
+   *
+   * La profondita' si legge dai piedi (l'origine dello sprite e' 0.5,1), cioe'
+   * dal punto in cui poggia sulla griglia: e' la cella su cui sta, non la sua
+   * testa, a dire chi gli passa davanti.
+   */
+  private refreshDepth(): void {
+    this.sprite.setDepth(projection.depthForWorld(this.sprite.x, this.sprite.y) + Z.playerDepthBias);
   }
 
   get x(): number {
@@ -41,8 +57,6 @@ export class Player {
     // Specchia lo sprite nella direzione di marcia.
     if (direction.x !== 0) this.sprite.setFlipX(direction.x < 0);
 
-    // La profondita' segue la posizione verticale: chi sta piu' in basso
-    // e' davanti, coerente con i blocchi che usano la riga come depth.
-    this.sprite.setDepth(this.sprite.y);
+    this.refreshDepth();
   }
 }
