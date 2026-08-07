@@ -81,6 +81,15 @@ export const JOYSTICK = {
 export const Z = {
   /** Sempre sopra i blocchi ordinati per profondita'. */
   placeHitbox: 9999,
+  /**
+   * Spinta in avanti del personaggio a parita' di cella.
+   *
+   * Player e blocchi condividono la stessa scala di profondita' (col+row),
+   * quindi sulla propria cella finirebbero in pareggio e l'ordine dipenderebbe
+   * da chi e' stato creato prima. Mezza cella basta a metterlo davanti al
+   * blocco su cui poggia senza scavalcare quello della cella successiva.
+   */
+  playerDepthBias: 0.5,
 } as const;
 
 /** Tipi di blocco. Aggiungerne uno = una riga qui. */

@@ -30,6 +30,17 @@ export interface GridProjection {
   /** Ordinamento in profondita': valore piu' alto = disegnato davanti. */
   depthFor(col: number, row: number): number;
 
+  /**
+   * La stessa profondita' di `depthFor`, ma per un punto qualsiasi del mondo
+   * invece che per una cella intera.
+   *
+   * Serve a chi non e' agganciato alla griglia — il personaggio — per entrare
+   * nello stesso ordinamento dei blocchi. Deve essere continua e coincidere
+   * con `depthFor` quando il punto e' il centro di una cella, altrimenti chi
+   * cammina "salta" davanti o dietro nel momento sbagliato.
+   */
+  depthForWorld(x: number, y: number): number;
+
   /** Vertici del perimetro della cella, per evidenziarla e disegnare la griglia. */
   cellOutline(col: number, row: number): Point[];
 }
@@ -58,6 +69,12 @@ const orthogonal: GridProjection = {
   // Piu' in basso = davanti.
   depthFor(_col, row) {
     return row;
+  },
+
+  // Inversa continua di cellToWorld sull'asse y: al centro della cella `row`
+  // il risultato e' esattamente `row`.
+  depthForWorld(_x, y) {
+    return (y - GRID.offsetY) / GRID.cellSize - 0.5;
   },
 
   cellOutline(col, row) {
@@ -115,6 +132,20 @@ const isometric: GridProjection = {
   // col+row maggiore e' piu' vicino a chi guarda.
   depthFor(col, row) {
     return col + row;
+  },
+
+  /**
+   * In isometrica col+row dipende solo dalla y: sommando le due righe
+   * dell'inversa, i termini in x si elidono e resta 2*(y - originY)/tileHeight.
+   * Tolto l'offset di mezza cella di cellToWorld, al centro della cella
+   * (col,row) il valore e' esattamente col+row.
+   *
+   * Il che e' anche la ragione per cui questo metodo esiste: la profondita'
+   * isometrica non e' la y in pixel, e usare la y direttamente mette il
+   * personaggio su una scala numerica diversa da quella dei blocchi.
+   */
+  depthForWorld(_x, y) {
+    return (2 * (y - ISO.originY)) / ISO.tileHeight - 1;
   },
 
   cellOutline(col, row) {
