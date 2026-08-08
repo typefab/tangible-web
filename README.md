@@ -129,6 +129,10 @@ tenere**. Se chiudi senza salvare e riapri, ti chiede: *riprendi* il lavoro
 locale, oppure *ricomincia* dal `level.json` pubblicato. Finche' non rispondi
 non tocca niente.
 
+**📂 Apri** legge un `level.json` che hai gia' sul telefono e lo mette al posto
+del progetto aperto — utile per riprendere il lavoro di qualcun altro senza
+aspettare un deploy. Si annulla con `Ctrl+Z` come tutto il resto.
+
 Il file scaricato va caricato in `public/level.json` dalla UI web di GitHub
 (`Add file` -> `Upload files`, e **ricordati il pulsante verde `Commit changes`**
 in fondo alla pagina). Finche' non fai questo, il lavoro sta solo sul tuo
@@ -197,3 +201,20 @@ Dettagli, verifiche e rischi aperti stanno in [PIANO.md](PIANO.md).
 ```bash
 npm install && npm run dev
 ```
+
+### Test
+
+```bash
+npx playwright install chromium   # una volta sola
+npm test
+```
+
+I test aprono il gioco vero in un browser vero e ci lavorano dentro: dipingono,
+cambiano layer, trascinano selezioni, fanno il pinch a due dita, ricaricano la
+pagina per controllare il salvataggio. Non ci sono unit test perche' le parti
+interessanti — la proiezione isometrica, l'ordine di disegno, i gesti — o si
+verificano su una pagina che gira o non si verificano affatto.
+
+Girano da soli a ogni push (`.github/workflows/test.yml`). **Non bloccano la
+pubblicazione**: caricare un livello nuovo deve restare un'operazione da un
+minuto, anche se un test e' rosso per una ragione che non c'entra.

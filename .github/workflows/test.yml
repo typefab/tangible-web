@@ -1,0 +1,57 @@
+name: Test
+
+# I test girano a ogni push e su ogni pull request.
+#
+# Deliberatamente NON bloccano il deploy: `deploy-web.yml` parte comunque.
+# Il motivo e' il ciclo di lavoro di questo progetto — una scena nuova si
+# pubblica caricando `public/level.json` dalla UI web di GitHub, e quel giro
+# deve restare di un minuto. Un test rosso per una ragione che non c'entra
+# niente con un livello non deve impedire di pubblicare il livello.
+#
+# Il risultato resta visibile come spunta o croce sul commit. Se un giorno
+# servisse il contrario, basta aggiungere `needs: test` al job `build` di
+# deploy-web.yml.
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Solo Chromium: i test provano il gioco, non la portabilita' fra browser.
+      # `--with-deps` installa le librerie di sistema che servono al runner.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Il typecheck e il build stanno qui e non in un job a parte: se il
+      # progetto non compila, i test non dicono niente di utile.
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      # Serve solo quando qualcosa e' rotto: la traccia mostra ogni passo del
+      # test con lo stato della pagina, che e' l'unico modo di capire un
+      # fallimento su una macchina che non si puo' guardare.
+      - name: Report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

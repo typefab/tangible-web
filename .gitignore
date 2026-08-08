@@ -5,5 +5,9 @@ dist/
 # non va versionata.
 android/
 
+# Prodotti dai test: report e tracce dei fallimenti.
+playwright-report/
+test-results/
+
 *.local
 .DS_Store

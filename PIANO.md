@@ -240,6 +240,36 @@ Lo spostamento toglie tutti i blocchi di partenza **prima** di ripiazzarli:
 facendolo uno alla volta, spostare una fila di uno a destra cancellerebbe il
 vicino appena scritto.
 
+### I test guidano il gioco vero
+
+`test/` con Playwright, e **nessun unit test**. Non e' pigrizia: le parti
+interessanti di questo progetto sono la proiezione isometrica, l'ordine di
+disegno dei layer, i gesti a due dita e un salvataggio che deve sopravvivere a
+una ricarica. Un mock di `Phaser.Scene` direbbe soltanto che il mock funziona —
+ed e' esattamente il tipo di verifica che aveva lasciato passare l'inversa
+isometrica sbagliata al 74%.
+
+I test leggono lo stato da `window.game`, esposto solo in sviluppo. Quindi
+girano contro il server di sviluppo, non contro l'anteprima del build.
+
+Scelte che tengono la suite affidabile:
+
+- **si aspetta un oggetto, mai un tempo fisso.** Un `waitForTimeout` tarato su
+  questa macchina diventa un test che fallisce su CI senza motivo.
+- **il pinch usa eventi touch veri** via CDP: `page.touchscreen` fa solo tap, e
+  un gesto a due dita simulato col mouse proverebbe un'altra cosa.
+- **il test del catalogo legge la cartella dal disco** e la confronta con la
+  palette. Se un giorno qualcuno rimettesse un elenco scritto a mano, verrebbe
+  scoperto al primo PNG caricato.
+- `CHROMIUM_PATH` permette di usare un Chromium gia' installato quando la sua
+  build non coincide con quella attesa da Playwright.
+
+**I test non bloccano il deploy.** Una scena nuova si pubblica caricando
+`level.json` dalla UI web di GitHub, e quel giro deve restare di un minuto: un
+test rosso per una ragione che non c'entra con un livello non deve impedire di
+pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
+`build` di `deploy-web.yml`.
+
 ---
 
 ## 5. Stato attuale
@@ -261,6 +291,8 @@ vicino appena scritto.
 | Salvataggio locale | `editor/EditorStorage.ts` | autosave e Salva, con `dialog.ts` per la domanda all'apertura |
 | Gesti | `editor/CameraGestures.ts` | pan e pinch a due dita, zoom ancorato al dito |
 | Selezione | `editor/SelectionTool.ts` | rettangolo, spostamento, eliminazione |
+| Apertura file | `editor/LevelEditor.ts` | legge un `level.json` dal dispositivo, annullabile |
+| Test | `test/`, `playwright.config.ts` | 39 test sul gioco che gira, in CI a ogni push |
 
 Test principali superati:
 
@@ -397,14 +429,13 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 2. ~~Pannello sprite con miniature + pennello~~ — **fatto**, la palette si genera
    dal catalogo e scorre invece di crescere in altezza
 3. ~~Selezione e spostamento di aree~~ — **fatto**
-4. ~~Salvataggio locale~~ — **fatto**, con conferma all'apertura. Resta il
-   pulsante **"Apri"** per leggere un `level.json` scelto dal telefono: oggi
-   l'unico modo di riprendere il lavoro di qualcun altro e' passare da un deploy
+4. ~~Salvataggio locale e apertura di un file~~ — **fatto**
 5. ~~Pinch-zoom~~ — **fatto**, insieme al pan a due dita
-6. **Copia e incolla della selezione**, anche fra schede: la selezione c'e' ma
+6. ~~Test automatici~~ — **fatto**, 39 test in CI
+7. **Copia e incolla della selezione**, anche fra schede: la selezione c'e' ma
    si puo' solo spostare o cancellare
-7. Quando GitHub rientra: verificare deploy web e produrre il primo APK
-8. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+8. Quando GitHub rientra: verificare deploy web e produrre il primo APK
+9. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
 

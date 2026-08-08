@@ -4,6 +4,7 @@ import { BLOCKS } from '../assets/catalog';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import {
   emptyLevel,
+  normalizeProject,
   type SerializedLevel,
   type SerializedProject,
 } from '../level/project';
@@ -211,6 +212,33 @@ export class LevelEditor {
       this.levels = this.project().levels;
       this.levels[this.activeLevelIndex]!.name = name.trim();
     });
+  }
+
+  /**
+   * Apre un `level.json` scelto dal dispositivo.
+   *
+   * Senza questo, l'unico modo di riprendere un livello e' che sia gia'
+   * pubblicato: si passa da un commit e da un minuto di deploy anche solo per
+   * rimettere le mani su un file che si ha gia' in mano.
+   *
+   * Sostituisce tutto il progetto, ma passando dall'undo: un file aperto per
+   * sbaglio si annulla con Ctrl+Z come qualsiasi altra cosa.
+   */
+  private async openFile(file: File): Promise<void> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      await chooseDialog(
+        'File non leggibile',
+        `"${file.name}" non contiene JSON valido. Se l'hai modificato a mano, controlla virgole e parentesi.`,
+        [{ id: 'ok', label: 'Ho capito' }] as const,
+      );
+      return;
+    }
+
+    const project = normalizeProject(parsed);
+    this.edit(() => this.adopt(project, 0));
   }
 
   private async deleteLevel(): Promise<void> {
@@ -719,6 +747,7 @@ export class LevelEditor {
       }
       #editor-toolbar .sep { width: 1px; align-self: stretch; background: #3a3a48; }
       #editor-toolbar .spacer { flex: 1 1 auto; }
+      #editor-toolbar .hidden-input { display: none; }
       #editor-toolbar .status { font-size: 12px; opacity: .8; }
       #editor-toolbar .status.dirty { color: #ffd166; opacity: 1; }
 
@@ -865,6 +894,22 @@ export class LevelEditor {
     file.appendChild(this.statusLabel);
 
     file.appendChild(Object.assign(document.createElement('span'), { className: 'spacer' }));
+
+    // L'input sta nascosto e lo apre il pulsante: quello di serie non si puo'
+    // impaginare e su telefono e' minuscolo.
+    const picker = document.createElement('input');
+    picker.type = 'file';
+    picker.accept = 'application/json,.json';
+    picker.className = 'hidden-input';
+    picker.onchange = () => {
+      const chosen = picker.files?.[0];
+      // Azzerato subito: senza, riaprire lo stesso file non emette `change`.
+      picker.value = '';
+      if (chosen) void this.openFile(chosen);
+    };
+    file.appendChild(picker);
+    this.button('📂 Apri', () => picker.click(), file).title =
+      'Apre un level.json dal dispositivo, al posto del progetto attuale (annullabile con Ctrl+Z)';
 
     // Qui le parole restano anche su schermo stretto: sono le azioni che si
     // sbagliano peggio, e "scarica" e "copia" non si distinguono a icone.
