@@ -1,7 +1,7 @@
 # Piano di lavoro — Tangible Cushion
 
 Documento di riferimento su scelte di architettura, stato e prossimi passi.
-Ultimo aggiornamento: 6 agosto 2026.
+Ultimo aggiornamento: 8 agosto 2026.
 
 ---
 
@@ -129,6 +129,49 @@ Le costanti di gioco stanno in `src/config.ts`, portate 1:1 dalla tabella di
 `gdevelop_repository/CLAUDE.md`: break 1,5s, cooldown 100ms, portata 224px,
 oscillazione `sin(t*18)*10` gradi, 8 slot di inventario.
 
+### Catalogo degli sprite
+
+I tipi di blocco non sono piu' scritti in `config.ts`: sono i PNG dentro
+`src/assets/blocks/`, elencati da `src/assets/catalog.ts` con `import.meta.glob`.
+**La cartella decide la categoria, il nome del file decide l'id.** Caricare un
+PNG e fare commit basta a farlo comparire nella palette e nell'inventario.
+
+Il prezzo e' che l'elenco esiste solo dopo la build, quindi `BlockType` non puo'
+piu' essere l'unione degli id: e' `string`, e chi legge `level.json` valida a
+runtime con `resolveBlock()`. Una mappa di alias tiene in vita gli id vecchi
+(`block_0` -> `basic`) perche' i file gia' esportati continuino ad aprirsi.
+
+Nota di build: `assetsInlineLimit: 0` in `vite.config.ts`. Di default Vite
+converte in data URI gli asset sotto i 4 KB — e i blocchi pesano 200-300 byte —
+ma il loader di Phaser scarica le immagini con XHR, che su un data URI non
+funziona. Sarebbe stato un guasto solo in produzione, perche' in sviluppo Vite
+non inlinea niente.
+
+### Layer
+
+Piani sovrapposti, selezionabili e accendibili uno alla volta, come in GDevelop.
+In piu' ogni layer ha una **quota**: quanti passi sta sopra il terreno.
+
+| Quota | Comportamento | A cosa serve |
+|---|---|---|
+| 0 | stesso posto, cambia solo l'ordine di disegno | e' il layer di GDevelop: decori sopra il terreno |
+| 1, 2, … | il piano si alza di un rombo (32px) | costruire in verticale sulla griglia isometrica |
+
+Un solo numero copre i due casi, quindi non ci sono due concetti da spiegare.
+
+Due decisioni che tengono in piedi il resto:
+
+- **I blocchi sono indicizzati per id di layer, non per posizione nell'elenco.**
+  Con l'indice, riordinare o cancellare un layer avrebbe rimescolato i blocchi
+  di tutti gli altri.
+- **La quota non entra nella profondita' di disegno**, che resta `col + row` piu'
+  uno scarto minimo per layer. A dire chi sta davanti e' la distanza da chi
+  guarda, non l'altezza: un blocco alzato non deve scavalcare quello della cella
+  davanti solo perche' sta piu' in su.
+
+In gioco non esiste un layer attivo: il tocco prende il blocco **piu' in alto**
+sulla cella, e il piazzamento va sul primo piano libero della pila.
+
 ---
 
 ## 5. Stato attuale
@@ -144,11 +187,24 @@ oscillazione `sin(t*18)*10` gradi, 8 slot di inventario.
 | Inventario 8 slot | `mechanics/Inventory.ts` | solo stato e regole, testabile senza schermo |
 | Barra inventario | `ui/InventoryBar.ts` | segnaposto se manca lo sprite, si adatta a schermi stretti |
 | Editor di scene | `editor/LevelEditor.ts` | `?editor=1`, esporta `level.json` |
+| Catalogo sprite | `assets/catalog.ts` | elenco generato dalle cartelle, alias per gli id vecchi |
+| Layer | `mechanics/GridPlacement.ts` | nome, visibilita', quota; pannello in `LevelEditor.ts` |
 
 Test principali superati:
 
 - inversa isometrica: **0 errori su 8000 punti campionati** con test di
   punto-in-poligono; round-trip sui centri: 0 errori su 625 celle
+- layer, verificati sul gioco che gira in Chromium: il pennello dipinge solo sul
+  layer attivo; `[`/`]` cambiano piano; l'undo di un tratto non tocca gli altri
+  layer; la stessa cella e' occupabile su due piani e il piano 1 sta 32px piu'
+  in alto; `topBlockAt` ignora i layer spenti; il limite di 8 layer regge a 20
+  tentativi di aggiunta
+- `serialize -> load -> serialize` identico byte a byte; un `level.json` nel
+  vecchio formato piatto si apre come layer "Terreno" con gli id tradotti;
+  `"layers": []` non lascia la scena senza piani; un blocco con id inesistente
+  viene scartato invece di diventare uno sprite invisibile
+- catalogo: un PNG copiato in `src/assets/blocks/` compare nella palette con
+  etichetta e anteprima corrette **senza toccare il codice**
 - bilancio inventario chiuso: 20 -> piazza -> 19 -> tentativi bloccati che non
   consumano -> rompi -> 20
 - rottura: progresso 0.5 a 750ms, oscillazione 8.04 gradi, distruzione a 1500ms
@@ -174,15 +230,35 @@ Test principali superati:
    shell, che sul runner Linux falliscono con `\r: command not found`. Prevenuto
    con `.gitattributes`.
 
+### Il gioco e' stato visto girare — 8 agosto 2026
+
+Cade il punto aperto piu' vecchio del progetto. Pilotando Chromium con
+Playwright (`--use-angle=swiftshader`) il game loop gira davvero: `frames: 180`,
+`running: true`, tutte le texture caricate, i 12 blocchi del livello sulla
+griglia. Griglia isometrica, blocchi, barra dell'inventario, joystick e pannello
+dei layer sono stati guardati a 900x620 e a 390x780.
+
+Due difetti visibili solo guardando, corretti subito:
+
+1. Su telefono il pannello dei layer copriva l'HUD di Phaser in alto a sinistra.
+   In editor l'HUD ora sparisce: la toolbar dice gia' tutto quello che diceva lui.
+2. La vista si apriva su (0,0) mentre l'origine isometrica sta a x=480, quindi su
+   uno schermo da telefono la scena era fuori campo e bisognava cercarla
+   trascinando. Ora l'editor parte inquadrato sul centro della griglia, e **⤢**
+   ci riporta.
+
+Falso allarme da mettere a verbale: negli screenshot compariva una fascia bianca
+sopra il canvas. Con il rendering software sparisce — era un artefatto di
+compositing GPU della cattura headless, non un difetto della pagina.
+
 ### Non verificato
 
-- **L'aspetto visivo non e' mai stato visto.** Il game loop non gira nel
-  pannello browser dell'ambiente di sviluppo (`frames: 0`): tutta la logica e'
-  stata verificata pilotando lo stato, non guardando lo schermo.
 - **Le GitHub Actions non hanno mai completato una run.** Il job `build` ha
   eseguito tutti i 15 step con successo, ma la pubblicazione non e' mai
   avvenuta a causa dell'avaria (vedi sotto).
 - **L'APK non e' mai stato prodotto.**
+- **Il tocco non e' mai stato provato su un telefono vero**, solo su un viewport
+  da 390x780 con il mouse.
 
 ### Avaria GitHub del 6 agosto 2026
 
@@ -203,39 +279,46 @@ primo push.
 
 ---
 
-## 6. Struttura dei file, prossima
-
-Oggi `public/assets/` e' un mucchio piatto di 54 file con nomi come
-`NewSprite10.png`. Struttura proposta:
+## 6. Struttura dei file — fatta
 
 ```
 src/assets/
-  blocks/        dirt.png, stone.png…
+  catalog.ts     <- l'elenco, generato da import.meta.glob
+  blocks/        basic.png, stack.png…   -> palette e inventario, automatici
   characters/    player.png
-  ui/            joystick-border.png, inventory-slot.png
-  props/
-public/data/
+  ui/            joystick-border.png, joystick-thumb.png
+public/
   level.json     <- prodotto dall'editor
+  assets/        <- archivio del progetto GDevelop, non usato dal codice
 ```
 
 Due regole: **la cartella decide la categoria, il nome del file decide l'id.**
 
-Motivo tecnico per cui va in `src/` e non in `public/`: una pagina web non puo'
-elencare il contenuto di una cartella. Da `public/` l'editor non saprebbe cosa
-c'e' dentro e servirebbe un elenco scritto a mano; da `src/` Vite genera
-l'elenco al momento della build. Cosi' **si carica un PNG, si fa commit, e
-compare nell'editor** senza modifiche al codice. Prezzo: serve una build, cioe'
-il tempo del deploy.
+Sono stati spostati solo i 5 sprite effettivamente usati. Gli altri 51 restano
+in `public/assets/`: sono varianti di joystick e prove mai entrate nel gioco, e
+non si buttano via i disegni di qualcun altro senza chiedere. Vanno tolti quando
+Fabrizio conferma che non servono — oggi finiscono nel deploy come peso morto.
+
+`props/` non esiste ancora: si crea quando ci sara' il primo prop, insieme al
+codice che lo usa. Una cartella vuota non aiuta nessuno.
 
 ---
 
 ## 7. Prossimi passi
 
-1. **Ristrutturazione cartelle + rinomina dei 54 file** — sblocca il resto
-2. **Pannello sprite con miniature + pennello** — il grosso del valore
-3. **Selezione, spostamento, cancellazione nell'editor**
-4. Quando GitHub rientra: verificare deploy web e produrre il primo APK
-5. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+1. ~~Ristrutturazione cartelle~~ — **fatta**
+2. ~~Pannello sprite con miniature + pennello~~ — **fatto**, la palette si genera
+   dal catalogo e scorre invece di crescere in altezza
+3. **Selezione e spostamento di aree nell'editor** — resta il buco piu' grosso
+   negli strumenti
+4. **Aprire un `level.json` dal telefono.** Oggi l'editor legge solo quello gia'
+   pubblicato, quindi per riprendere un livello bisogna passare da un deploy.
+   Serve un pulsante "Apri" e un salvataggio in `localStorage` per non perdere il
+   lavoro se la pagina si ricarica
+5. **Pinch-zoom.** Lo zoom e' solo a rotella: sul telefono, che e' il caso d'uso
+   principale, non c'e'
+6. Quando GitHub rientra: verificare deploy web e produrre il primo APK
+7. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
 
@@ -243,8 +326,9 @@ il tempo del deploy.
 
 | Rischio | Note |
 |---|---|
-| **L'arte non e' isometrica** | `Block_0` e' una cassa frontale. Su griglia a rombi le facce non combaciano: va ridisegnata. E' lavoro di grafica |
-| Aspetto visivo mai visto | Scala del player, posizione del joystick e dimensione dei blocchi sono valori scelti a tavolino |
+| **L'arte non e' isometrica** | `basic.png` e' una cassa frontale. Su griglia a rombi le facce non combaciano, e con i layer si vede di piu': impilando due blocchi le facce laterali non si allineano. E' lavoro di grafica |
+| **Il player e' minuscolo** | Visto a schermo: 26x64px su celle da 64x32, e' una macchiolina. La proporzione `317/788` dello sprite sorgente e' rispettata, ma l'altezza scelta (2 celle) e' troppo poca. Da ritarare guardando, ora che si puo' |
+| Quota e altezza dello sprite scollegate | Un passo di quota vale `tileHeight` (32px), ma gli sprite dei blocchi sono piu' alti della cella. Su arte isometrica vera i due numeri devono coincidere, altrimenti restano fessure o sovrapposizioni |
 | Le Actions non hanno mai completato | La build passa, la pubblicazione no. Da riverificare a guasto risolto |
-| L'editor risulta troppo spartano | Cresce a richiesta |
+| 51 PNG inutilizzati nel deploy | Archivio in `public/assets/`. Da togliere quando Fabrizio conferma |
 | Ciclo commit -> gioco live ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |

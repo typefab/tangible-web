@@ -55,32 +55,70 @@ https://<utente>.github.io/<repo>/?editor=1
 
 Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
 
-- **tocca una cella vuota** -> piazza un blocco del tipo selezionato
-- **tocca un blocco** -> lo toglie
-- i pulsanti in basso scelgono il tipo di blocco
+**Disegnare**
+
+- la fila in alto nella barra e' la **palette**: scegli il blocco da piazzare
+- **🖌 Pennello** (`B`) piazza, anche trascinando; **🧽 Gomma** (`E`) cancella
+- **🪣 Riempi** (`G`) riempie l'area contigua; **✋ Sposta** (`H`) trascina la vista
+- **↶ / ↷** annullano e rifanno (`Ctrl+Z`, `Ctrl+Shift+Z`); un trascinamento
+  intero conta come un solo passo
+- **− / + / ⤢** ingrandiscono, riducono e riportano la vista al centro
 - **Griglia: on/off** nasconde le linee per guardare la scena pulita; lo snap
   resta comunque attivo
-- **Scarica level.json** salva il file; **Copia JSON** lo mette negli appunti
+- **▶ Gioca** esce dall'editor
 
-Poi carichi il file in `public/level.json` dalla UI web di GitHub
+**I layer**
+
+Il pannello in alto a destra elenca i piani, come i layer di GDevelop. Il layer
+in cima all'elenco e' quello disegnato davanti.
+
+- **tocca il nome** per renderlo attivo: si disegna **solo** sul layer attivo
+- `[` e `]` cambiano piano da tastiera
+- **👁** accende e spegne un layer. Quello attivo resta sempre acceso, altrimenti
+  dipingeresti alla cieca
+- **↑n** e' la **quota**: `↑0` e' un piano piatto, sovrapposto in loco — cioe' il
+  layer di GDevelop. Da `↑1` in su il piano si alza di una cella, e ci costruisci
+  **sopra** al piano di sotto
+- **+** aggiunge un piano (max 8), **▲ ▼** lo riordinano, **✎** lo rinomina,
+  **🗑** lo elimina con i suoi blocchi
+
+**Salvare**
+
+**Scarica level.json** salva il file; **Copia JSON** lo mette negli appunti.
+Poi lo carichi in `public/level.json` dalla UI web di GitHub
 (`Add file` -> `Upload files`, e **ricordati il pulsante verde `Commit changes`**
 in fondo alla pagina).
 
 In editor non c'e' il personaggio: si costruisce ovunque, senza il vincolo di
-portata. Per tornare a giocare basta togliere `?editor=1`.
+portata.
 
 ## Cosa tocchi tu
 
 | File | Cosa contiene |
 |---|---|
-| `public/assets/*.png` | Gli sprite. Trascinali nella UI web di GitHub. |
-| `public/level.json` | La disposizione dei blocchi. A mano, o esportato da un editor di tilemap. |
+| `src/assets/blocks/*.png` | I blocchi piazzabili. **Il nome del file e' l'id**: `dirt.png` diventa il blocco "Dirt". |
+| `src/assets/characters/`, `src/assets/ui/` | Personaggio e pezzi di interfaccia. Qui i nomi contano: li cerca il codice. |
+| `public/level.json` | La disposizione dei blocchi, per layer. Prodotto dall'editor. |
+| `public/assets/*.png` | Archivio degli sprite del progetto GDevelop. Non lo usa nessuno: e' li' perche' non si buttano via i disegni. |
+
+### Aggiungere un blocco nuovo
+
+Carichi il PNG in **`src/assets/blocks/`** dalla UI web di GitHub e fai commit.
+Fine: compare nella palette dell'editor con la sua anteprima, e' piazzabile, ed
+entra nell'inventario del gioco. Nessuna riga di codice da toccare — l'elenco
+degli sprite lo genera Vite leggendo la cartella durante la build.
+
+Il prezzo e' che serve una build, cioe' il minuto del deploy: fino ad allora il
+blocco non c'e'. E' anche il motivo per cui gli sprite stanno in `src/` e non in
+`public/`: una pagina web non puo' elencare il contenuto di una cartella remota,
+quindi da `public/` servirebbe un elenco scritto a mano.
 
 ## Cosa tocco io
 
 | File | Cosa contiene |
 |---|---|
 | `src/config.ts` | Le costanti di gioco, portate 1:1 dalla tabella di `CLAUDE.md`. |
+| `src/assets/catalog.ts` | L'elenco degli sprite, generato dal contenuto delle cartelle. |
 | `src/grid/` | La geometria della griglia, isolata dietro un'interfaccia. |
 | `src/mechanics/` | Le meccaniche. Una classe per meccanica, autonoma e testabile. |
 | `src/ui/` | Barra dell'inventario e altri elementi di interfaccia. |
@@ -97,6 +135,10 @@ portata. Per tornare a giocare basta togliere `?editor=1`.
 - **Inventario a 8 slot**: rompere restituisce il blocco, piazzare lo consuma
 - Caricamento della disposizione iniziale da `level.json`
 - Profondita' `col + row`, corretta per l'isometrica
+- **Catalogo degli sprite generato dalle cartelle**: un PNG caricato in
+  `src/assets/blocks/` compare da solo nella palette e nell'inventario
+- **Layer** con nome, visibilita' e quota: si costruisce anche in verticale, e
+  in gioco il tocco prende sempre il blocco piu' in alto
 
 Dettagli, verifiche e rischi aperti stanno in [PIANO.md](PIANO.md).
 

@@ -43,6 +43,16 @@ export interface GridProjection {
 
   /** Vertici del perimetro della cella, per evidenziarla e disegnare la griglia. */
   cellOutline(col: number, row: number): Point[];
+
+  /**
+   * Di quanti pixel va spostato in su un oggetto che sta `steps` piani sopra il
+   * terreno. Sempre negativo o zero: sullo schermo "in alto" e' y minore.
+   *
+   * Quanto valga un piano dipende dalla proiezione, non dal chiamante: su
+   * griglia isometrica e' l'altezza del rombo, su griglia quadrata il lato
+   * della cella. Per questo sta qui e non in `config.ts`.
+   */
+  elevationOffsetY(steps: number): number;
 }
 
 /**
@@ -75,6 +85,10 @@ const orthogonal: GridProjection = {
   // il risultato e' esattamente `row`.
   depthForWorld(_x, y) {
     return (y - GRID.offsetY) / GRID.cellSize - 0.5;
+  },
+
+  elevationOffsetY(steps) {
+    return -steps * GRID.cellSize;
   },
 
   cellOutline(col, row) {
@@ -146,6 +160,15 @@ const isometric: GridProjection = {
    */
   depthForWorld(_x, y) {
     return (2 * (y - ISO.originY)) / ISO.tileHeight - 1;
+  },
+
+  /**
+   * Un piano di elevazione vale l'altezza del rombo: cosi' un blocco al piano 1
+   * poggia esattamente sul bordo superiore di quello al piano 0, come i cubi di
+   * un gioco isometrico.
+   */
+  elevationOffsetY(steps) {
+    return -steps * ISO.tileHeight;
   },
 
   cellOutline(col, row) {

@@ -47,7 +47,33 @@ export const RANGES = {
   placementRange: 224,
 } as const;
 
+/**
+ * Layer, come in GDevelop: piani sovrapposti, selezionabili uno alla volta e
+ * accendibili singolarmente.
+ *
+ * In piu' rispetto a GDevelop, qui un layer ha un'**elevazione**: quanti passi
+ * in alto sta rispetto al terreno. A elevazione 0 il layer e' un piano piatto —
+ * stessa cella, stesso posto, cambia solo l'ordine di disegno, cioe' esattamente
+ * il comportamento di GDevelop. Da 1 in su il piano si alza di una cella, che su
+ * griglia isometrica e' quello che serve per costruire in verticale.
+ *
+ * Un solo numero copre i due casi, quindi non ci sono due concetti da spiegare.
+ */
+export const LAYERS = {
+  /** Oltre questo numero il pannello diventa ingestibile su telefono. */
+  max: 8,
+  /**
+   * Scarto di profondita' tra due layer sulla stessa cella.
+   *
+   * Deve solo rompere il pareggio: `max * depthStep` resta sotto
+   * `Z.playerDepthBias`, altrimenti un layer alto scavalcherebbe il personaggio
+   * sulla sua stessa cella.
+   */
+  depthStep: 0.02,
+} as const;
+
 export const PLAYER = {
+  /** Id nel catalogo: `src/assets/characters/player.png`. */
   texture: 'player',
   /** Lo sprite sorgente e' 317x788: due celle di altezza, larghezza in proporzione. */
   height: GRID.cellSize * 2,
@@ -61,15 +87,20 @@ export const INVENTORY = {
   slots: 8,
   /** Lato dello slot a schermo pieno; su telefono viene ridotto in proporzione. */
   slotSize: 96,
-  /** Se questa texture esiste viene usata come sfondo dello slot. */
-  slotTexture: 'inventory_slot',
+  /**
+   * Se questa texture esiste viene usata come sfondo dello slot: basta caricare
+   * `src/assets/ui/inventory-slot.png`. Finche' manca, la barra disegna un
+   * rettangolo come segnaposto.
+   */
+  slotTexture: 'inventory-slot',
   /** Quanti blocchi entrano in uno slot. */
   stackLimit: 99,
 } as const;
 
 export const JOYSTICK = {
-  borderTexture: 'joystick_border',
-  thumbTexture: 'joystick_thumb',
+  /** Id nel catalogo: `src/assets/ui/`. */
+  borderTexture: 'joystick-border',
+  thumbTexture: 'joystick-thumb',
   /** Raggio entro cui il pollice si muove, in pixel schermo. */
   radius: 56,
   /** Sotto questa frazione del raggio il movimento e' considerato fermo. */
@@ -92,10 +123,13 @@ export const Z = {
   playerDepthBias: 0.5,
 } as const;
 
-/** Tipi di blocco. Aggiungerne uno = una riga qui. */
-export const BLOCKS = {
-  block_0: { texture: 'block_normal', label: 'Basic' },
-  block_1: { texture: 'block_stack', label: 'Stack' },
-} as const;
-
-export type BlockType = keyof typeof BLOCKS;
+/**
+ * I tipi di blocco non stanno piu' qui: sono i PNG di `src/assets/blocks/`,
+ * elencati da `src/assets/catalog.ts`. Aggiungerne uno non e' piu' una riga di
+ * codice, e' un file caricato da GitHub.
+ *
+ * Il prezzo e' questo alias: l'elenco esiste solo alla build, quindi il tipo
+ * non puo' essere l'unione degli id. Chi legge da `level.json` deve validare a
+ * runtime con `resolveBlock()`.
+ */
+export type BlockType = string;
