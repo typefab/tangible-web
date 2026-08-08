@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { ISO, TIMING, LAYERS, type BlockType } from '../config';
 import { canonicalBlockId, DEFAULT_BLOCK_ID } from '../assets/catalog';
 import { projection } from '../grid/projection';
+import { emptyLayer, type SerializedLayer } from '../level/project';
 
 /**
  * Un piano di costruzione, come un layer di GDevelop.
@@ -17,23 +18,6 @@ export interface Layer {
   /** Quanti piani sopra il terreno. 0 = piano piatto, sovrapposto in loco. */
   elevation: number;
   visible: boolean;
-}
-
-/** Un layer come finisce dentro `level.json`. */
-export interface SerializedLayer {
-  name: string;
-  elevation: number;
-  visible: boolean;
-  blocks: { col: number; row: number; type: BlockType }[];
-}
-
-export interface SerializedLevel {
-  layers: SerializedLayer[];
-}
-
-/** Il formato piatto usato prima dei layer: un solo elenco di blocchi. */
-interface LegacyLevel {
-  blocks?: { col: number; row: number; type: BlockType }[];
 }
 
 let nextLayerId = 0;
@@ -267,6 +251,23 @@ export class GridPlacement {
     return this.blocks.size;
   }
 
+  /**
+   * I blocchi di un layer, con il loro sprite. Serve alla selezione, che deve
+   * sapere dove stanno davvero a schermo: la posizione dello sprite tiene conto
+   * della quota, il centro della cella no.
+   */
+  entriesOn(layerIndex: number): { col: number; row: number; sprite: Phaser.GameObjects.Sprite }[] {
+    const layer = this.layerAt(layerIndex);
+    if (!layer) return [];
+
+    const out: { col: number; row: number; sprite: Phaser.GameObjects.Sprite }[] = [];
+    for (const [key, sprite] of this.blocks) {
+      const { layerId, col, row } = GridPlacement.parseKey(key);
+      if (layerId === layer.id) out.push({ col, row, sprite });
+    }
+    return out;
+  }
+
   countOn(layerIndex: number): number {
     const layer = this.layerAt(layerIndex);
     if (!layer) return 0;
@@ -457,7 +458,7 @@ export class GridPlacement {
    * riga e poi colonna, cosi' il `level.json` esportato ha un diff stabile su
    * git anche quando li si e' disegnati in ordine sparso.
    */
-  serialize(): SerializedLevel {
+  serializeLayers(): SerializedLayer[] {
     const byLayer = new Map<string, SerializedLayer['blocks']>();
     for (const layer of this.layerList) byLayer.set(layer.id, []);
 
@@ -466,41 +467,33 @@ export class GridPlacement {
       byLayer.get(layerId)?.push({ col, row, type: sprite.getData('type') as BlockType });
     }
 
-    return {
-      layers: this.layerList.map((layer) => ({
-        name: layer.name,
-        elevation: layer.elevation,
-        visible: layer.visible,
-        blocks: (byLayer.get(layer.id) ?? []).sort((a, b) => a.row - b.row || a.col - b.col),
-      })),
-    };
+    return this.layerList.map((layer) => ({
+      name: layer.name,
+      elevation: layer.elevation,
+      visible: layer.visible,
+      blocks: (byLayer.get(layer.id) ?? []).sort((a, b) => a.row - b.row || a.col - b.col),
+    }));
   }
 
   /**
-   * Ricostruisce la scena da uno stato serializzato.
-   *
-   * Accetta anche il formato piatto di prima dei layer (`{ "blocks": [...] }`):
-   * un `level.json` gia' esportato deve continuare ad aprirsi, e diventa un
-   * livello con il solo layer "Terreno".
+   * Ricostruisce la scena. I dati arrivano gia' normalizzati da
+   * `level/project.ts`: qui non si sa niente dei formati vecchi.
    */
-  load(data: SerializedLevel | LegacyLevel | undefined): void {
+  loadLayers(layers: readonly SerializedLayer[]): void {
     this.clear();
-    if (!data) return;
-
-    const layers =
-      'layers' in data && Array.isArray(data.layers)
-        ? data.layers
-        : [{ name: 'Terreno', elevation: 0, visible: true, blocks: (data as LegacyLevel).blocks ?? [] }];
-
     this.layerList = [];
-    for (const [i, layer] of layers.slice(0, LAYERS.max).entries()) {
-      const index = this.addLayer(layer.name ?? `Layer ${i}`, layer.elevation ?? i);
-      this.layerList[index]!.visible = layer.visible !== false;
-      for (const b of layer.blocks ?? []) this.spawn(b.col, b.row, b.type, index);
+
+    for (const layer of layers.slice(0, LAYERS.max)) {
+      const index = this.addLayer(layer.name, layer.elevation);
+      this.layerList[index]!.visible = layer.visible;
+      for (const b of layer.blocks) this.spawn(b.col, b.row, b.type, index);
     }
 
-    // Un file con `"layers": []` lascerebbe la scena senza piani su cui costruire.
-    if (this.layerList.length === 0) this.addLayer('Terreno', 0);
+    // Un elenco vuoto lascerebbe la scena senza piani su cui costruire.
+    if (this.layerList.length === 0) {
+      const base = emptyLayer();
+      this.addLayer(base.name, base.elevation);
+    }
     this.activeIndex = 0;
   }
 }

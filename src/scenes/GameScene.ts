@@ -2,18 +2,23 @@ import Phaser from 'phaser';
 import { GRID, ISO, TIMING, Z, RANGES, INVENTORY } from '../config';
 import { BLOCKS, CHARACTERS, UI, blockLabel } from '../assets/catalog';
 import { projection } from '../grid/projection';
-import { GridPlacement, type SerializedLevel } from '../mechanics/GridPlacement';
+import { GridPlacement } from '../mechanics/GridPlacement';
+import { normalizeProject, pickLevel, type SerializedProject } from '../level/project';
 import { Player } from '../mechanics/Player';
 import { VirtualJoystick } from '../mechanics/VirtualJoystick';
 import { Inventory } from '../mechanics/Inventory';
 import { InventoryBar } from '../ui/InventoryBar';
 import { LevelEditor } from '../editor/LevelEditor';
 
+const PARAMS = new URLSearchParams(location.search);
+
 /** Modalita' editor: si attiva con ?editor=1 nell'URL. */
-const EDITOR_MODE = new URLSearchParams(location.search).has('editor');
+const EDITOR_MODE = PARAMS.has('editor');
 
 export class GameScene extends Phaser.Scene {
   private placement!: GridPlacement;
+  /** Tutti i livelli del file: il gioco ne monta uno, l'editor li apre tutti. */
+  private project!: SerializedProject;
   /** Le celle sono rombi, quindi l'evidenziazione e' un poligono, non un rettangolo. */
   private hitbox!: Phaser.GameObjects.Graphics;
   private gridLines!: Phaser.GameObjects.Graphics;
@@ -70,7 +75,7 @@ export class GameScene extends Phaser.Scene {
     if (EDITOR_MODE) {
       // In editor niente personaggio: si guarda la scena dall'alto e si
       // costruisce ovunque, senza il vincolo di portata.
-      this.editor = new LevelEditor(this, this.placement);
+      this.editor = new LevelEditor(this, this.placement, this.project);
     } else {
       this.player = new Player(this, this.scale.width / 2, this.scale.height / 2);
       this.joystick = new VirtualJoystick(this);
@@ -173,14 +178,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Carica la disposizione iniziale da level.json.
+   * Carica il progetto da `level.json` e monta il livello richiesto.
    *
-   * La validazione dei tipi di blocco sta dentro `spawn()`: gli id esistono
-   * solo alla build, quindi un file che nomina un blocco cancellato va scartato
-   * a runtime, non dal compilatore.
+   * Il file contiene tutti i livelli; `?level=` sceglie quale giocare, per
+   * nome o per numero. La normalizzazione accetta anche i formati vecchi, e la
+   * validazione dei tipi di blocco sta dentro `spawn()`: gli id esistono solo
+   * alla build, quindi un file che nomina un blocco cancellato va scartato a
+   * runtime, non dal compilatore.
    */
   private loadLevel(): void {
-    this.placement.load(this.cache.json.get('level') as SerializedLevel | undefined);
+    this.project = normalizeProject(this.cache.json.get('level'));
+    this.placement.loadLayers(pickLevel(this.project, PARAMS.get('level')).layers);
   }
 
   private bindInput(): void {

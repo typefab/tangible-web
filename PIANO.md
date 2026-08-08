@@ -1,7 +1,7 @@
 # Piano di lavoro — Tangible Cushion
 
 Documento di riferimento su scelte di architettura, stato e prossimi passi.
-Ultimo aggiornamento: 8 agosto 2026.
+Ultimo aggiornamento: 8 agosto 2026 (seconda revisione).
 
 ---
 
@@ -172,6 +172,74 @@ Due decisioni che tengono in piedi il resto:
 In gioco non esiste un layer attivo: il tocco prende il blocco **piu' in alto**
 sulla cella, e il piazzamento va sul primo piano libero della pila.
 
+### Un file, tutti i livelli
+
+`public/level.json` contiene l'intero progetto: `{ "levels": [ { "name", "layers" } ] }`.
+Un file per livello sarebbe stato piu' ortodosso, ma il collo di bottiglia qui
+non e' l'eleganza del formato, e' il caricamento a mano dalla UI web di GitHub:
+un file e' un'operazione, cinque sono cinque occasioni di sbagliare cartella. Il
+diff resta leggibile perche' i blocchi escono ordinati.
+
+Il gioco sceglie con `?level=`, per numero o per nome. Un valore sconosciuto
+torna al primo livello invece di dare una scena vuota: un link sbagliato non
+deve sembrare un gioco rotto.
+
+`normalizeProject()` in `src/level/project.ts` porta al formato corrente tutte e
+tre le generazioni del file (`levels`, `layers`, `blocks`), e qualunque cosa non
+riconosca diventa un progetto vuoto invece di un errore — l'editor deve aprirsi
+comunque, altrimenti non c'e' modo di rimediare a un file rotto.
+
+### Salvataggio: ricordare senza decidere
+
+Fra il costruire e il vedere il lavoro nel gioco c'e' un passaggio manuale
+(scarica, carica su GitHub), e in mezzo ci sta una scheda chiusa per sbaglio.
+Quindi l'editor **ricorda** in `localStorage`, ma **non ripristina mai in
+silenzio**.
+
+| Stato | Significato |
+|---|---|
+| `dirty: true` | autosave, modifiche mai confermate |
+| `dirty: false` | ha premuto Salva: lo stato buono l'ha deciso lui |
+
+All'apertura, se quello che c'e' in memoria differisce da `level.json`, si apre
+una domanda con due strade: *riprendi* o *ricomincia dal file pubblicato*.
+Ripristinare da soli sarebbe sbagliato in entrambi i versi — chi ha appena
+caricato un `level.json` nuovo non capirebbe perche' vede il vecchio, e chi ha
+chiuso per sbaglio si vedrebbe sovrascritto senza accorgersene.
+
+Distinzione che la UI insiste a tenere separata: **Salva** scrive nel browser,
+**Scarica** produce il file che porta il lavoro nel gioco. Confonderle e' il
+modo piu' facile di perdere una serata di lavoro.
+
+### Navigazione: due dita, non uno
+
+Un dito e' gia' preso — disegna, cancella, seleziona — quindi il gesto libero e'
+a due dita: trascinare sposta, allargare ingrandisce, e funziona in qualsiasi
+strumento senza cambiare modalita'. Chi vuole il dito singolo ha ✋, a un tocco.
+
+Due dettagli che sembrano piccoli e non lo sono:
+
+- **il secondo dito annulla il tratto del primo.** Appoggiando la mano per fare
+  pinch, il primo dito ha gia' toccato: senza questo si resterebbe con un blocco
+  piazzato dove e' atterrato il pollice.
+- **lo zoom e' ancorato al punto sotto le dita**, non al centro dello schermo,
+  altrimenti ogni ingrandimento richiede un riposizionamento.
+
+### Selezione
+
+Rettangolo elastico, come in GDevelop: si trascina, si allarga, al rilascio
+seleziona. Poi la selezione si trascina per spostarla, o si cancella con `Canc`.
+
+Il test di appartenenza usa la posizione dello **sprite**, non il centro della
+cella: su un layer con quota i due punti non coincidono, e chi seleziona si
+aspetta di prendere quello che vede. Per la stessa ragione il rettangolo resta
+una figura di schermo, quindi su griglia isometrica copre un rombo di celle —
+ed e' giusto cosi', perche' e' quello che si vede mentre lo si trascina.
+
+Lo spostamento toglie tutti i blocchi di partenza **prima** di ripiazzarli:
+facendolo uno alla volta, spostare una fila di uno a destra cancellerebbe il
+vicino appena scritto.
+
 ---
 
 ## 5. Stato attuale
@@ -189,6 +257,10 @@ sulla cella, e il piazzamento va sul primo piano libero della pila.
 | Editor di scene | `editor/LevelEditor.ts` | `?editor=1`, esporta `level.json` |
 | Catalogo sprite | `assets/catalog.ts` | elenco generato dalle cartelle, alias per gli id vecchi |
 | Layer | `mechanics/GridPlacement.ts` | nome, visibilita', quota; pannello in `LevelEditor.ts` |
+| Formato progetto | `level/project.ts` | piu' livelli in un file, normalizzazione dei formati vecchi |
+| Salvataggio locale | `editor/EditorStorage.ts` | autosave e Salva, con `dialog.ts` per la domanda all'apertura |
+| Gesti | `editor/CameraGestures.ts` | pan e pinch a due dita, zoom ancorato al dito |
+| Selezione | `editor/SelectionTool.ts` | rettangolo, spostamento, eliminazione |
 
 Test principali superati:
 
@@ -205,6 +277,21 @@ Test principali superati:
   viene scartato invece di diventare uno sprite invisibile
 - catalogo: un PNG copiato in `src/assets/blocks/` compare nella palette con
   etichetta e anteprima corrette **senza toccare il codice**
+- schede: due livelli dallo stesso file, il cambio scheda monta l'altro livello
+  e ognuno conserva i propri blocchi; crea, duplica ed elimina; **Ctrl+Z annulla
+  anche le operazioni sulle schede**, perche' lo snapshot contiene il progetto
+  intero e non solo il livello aperto
+- salvataggio, pilotando il browser attraverso ricariche vere: dopo un tratto lo
+  stato dice "non salvato" e l'autosave e' scritto; riaprendo compare la domanda
+  e **finche' non si risponde resta il file pubblicato**; "Riprendi" rimette il
+  lavoro, "Ricomincia" torna al pubblicato e svuota la memoria; alla ricarica
+  successiva non chiede piu' niente
+- selezione: il rettangolo prende gli estremi e lascia fuori il blocco lontano;
+  trascinandola si sposta di una cella e `Ctrl+Z` la rimette; `Canc` elimina
+  esattamente i selezionati, ne' uno di piu' ne' uno di meno
+- pinch, con eventi touch veri via CDP: due dita che si allargano portano lo
+  zoom da 1.00 a 1.87, e **il secondo dito annulla il blocco che il primo aveva
+  gia' piazzato** — il conteggio resta identico
 - bilancio inventario chiuso: 20 -> piazza -> 19 -> tentativi bloccati che non
   consumano -> rompi -> 20
 - rottura: progresso 0.5 a 750ms, oscillazione 8.04 gradi, distruzione a 1500ms
@@ -309,16 +396,15 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 1. ~~Ristrutturazione cartelle~~ — **fatta**
 2. ~~Pannello sprite con miniature + pennello~~ — **fatto**, la palette si genera
    dal catalogo e scorre invece di crescere in altezza
-3. **Selezione e spostamento di aree nell'editor** — resta il buco piu' grosso
-   negli strumenti
-4. **Aprire un `level.json` dal telefono.** Oggi l'editor legge solo quello gia'
-   pubblicato, quindi per riprendere un livello bisogna passare da un deploy.
-   Serve un pulsante "Apri" e un salvataggio in `localStorage` per non perdere il
-   lavoro se la pagina si ricarica
-5. **Pinch-zoom.** Lo zoom e' solo a rotella: sul telefono, che e' il caso d'uso
-   principale, non c'e'
-6. Quando GitHub rientra: verificare deploy web e produrre il primo APK
-7. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+3. ~~Selezione e spostamento di aree~~ — **fatto**
+4. ~~Salvataggio locale~~ — **fatto**, con conferma all'apertura. Resta il
+   pulsante **"Apri"** per leggere un `level.json` scelto dal telefono: oggi
+   l'unico modo di riprendere il lavoro di qualcun altro e' passare da un deploy
+5. ~~Pinch-zoom~~ — **fatto**, insieme al pan a due dita
+6. **Copia e incolla della selezione**, anche fra schede: la selezione c'e' ma
+   si puo' solo spostare o cancellare
+7. Quando GitHub rientra: verificare deploy web e produrre il primo APK
+8. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
 
@@ -331,4 +417,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | Quota e altezza dello sprite scollegate | Un passo di quota vale `tileHeight` (32px), ma gli sprite dei blocchi sono piu' alti della cella. Su arte isometrica vera i due numeri devono coincidere, altrimenti restano fessure o sovrapposizioni |
 | Le Actions non hanno mai completato | La build passa, la pubblicazione no. Da riverificare a guasto risolto |
 | 51 PNG inutilizzati nel deploy | Archivio in `public/assets/`. Da togliere quando Fabrizio conferma |
+| **Salva non porta il lavoro nel gioco** | Salva scrive in `localStorage`, solo Scarica + upload su GitHub aggiorna il gioco. La UI lo dice in tre punti, ma resta il modo piu' facile di perdere una serata |
+| Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
+| Undo a snapshot dell'intero progetto | Con molti livelli pieni ogni passo costa qualche decina di kB. A queste dimensioni non si vede; con venti livelli grandi andra' rivisto |
 | Ciclo commit -> gioco live ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |

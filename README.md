@@ -55,17 +55,40 @@ https://<utente>.github.io/<repo>/?editor=1
 
 Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
 
+**Muoversi nella scena**
+
+- **due dita**: trascina per spostarti, allarga o stringi per ingrandire.
+  Funziona sempre, qualunque strumento sia attivo
+- **un dito** fa quello che dice lo strumento. Per spostarti con un dito solo
+  c'e' **✋ Sposta** (`H`)
+- appoggiando il secondo dito, il tratto appena iniziato dal primo viene
+  annullato: non resti con un blocco piazzato dove hai poggiato la mano
+- **⤢** riporta la vista al centro della griglia
+
 **Disegnare**
 
 - la fila in alto nella barra e' la **palette**: scegli il blocco da piazzare
 - **🖌 Pennello** (`B`) piazza, anche trascinando; **🧽 Gomma** (`E`) cancella
-- **🪣 Riempi** (`G`) riempie l'area contigua; **✋ Sposta** (`H`) trascina la vista
+- **🪣 Riempi** (`G`) riempie l'area contigua
 - **↶ / ↷** annullano e rifanno (`Ctrl+Z`, `Ctrl+Shift+Z`); un trascinamento
   intero conta come un solo passo
-- **− / + / ⤢** ingrandiscono, riducono e riportano la vista al centro
 - **Griglia: on/off** nasconde le linee per guardare la scena pulita; lo snap
   resta comunque attivo
 - **▶ Gioca** esce dall'editor
+
+**Selezionare** — **⬚ Seleziona** (`S`)
+
+Trascini dal punto dove appoggi il dito, il rettangolo si allarga seguendoti, e
+al rilascio resta selezionato tutto quello che ci e' finito dentro. Come in
+GDevelop.
+
+- **trascina dentro la selezione** per spostarla, di cella in cella
+- **🗑 Cancella** o il tasto `Canc` elimina i blocchi selezionati
+- `Esc` annulla la selezione
+
+Vale sul layer attivo e solo su quello, come il pennello. Il rettangolo e' una
+figura sullo schermo: su griglia isometrica copre un rombo di celle, quindi
+prende quello che ci vedi dentro, non un blocco di righe e colonne.
 
 **I layer**
 
@@ -82,12 +105,34 @@ in cima all'elenco e' quello disegnato davanti.
 - **+** aggiunge un piano (max 8), **▲ ▼** lo riordinano, **✎** lo rinomina,
   **🗑** lo elimina con i suoi blocchi
 
+**Le schede dei livelli**
+
+La barra in cima elenca i livelli. Un solo `level.json` li contiene tutti.
+
+- **tocca una scheda** per aprire quel livello
+- **+** ne crea uno, **⧉** duplica quello aperto, **✎** lo rinomina, **🗑** lo
+  elimina (si recupera con `Ctrl+Z`)
+- in gioco si sceglie con l'URL: `?level=2` oppure `?level=Caverna`. Senza, si
+  gioca il primo
+
 **Salvare**
 
-**Scarica level.json** salva il file; **Copia JSON** lo mette negli appunti.
-Poi lo carichi in `public/level.json` dalla UI web di GitHub
+Due cose diverse, e conviene tenerle distinte:
+
+| | Cosa fa | Quando |
+|---|---|---|
+| **💾 Salva** (`Ctrl+S`) | salva **in questo browser** | mentre lavori |
+| **⬇ Scarica** | scarica `level.json` | quando vuoi portarlo nel gioco |
+
+L'editor salva da solo mentre costruisci, ma **non decide mai da solo cosa
+tenere**. Se chiudi senza salvare e riapri, ti chiede: *riprendi* il lavoro
+locale, oppure *ricomincia* dal `level.json` pubblicato. Finche' non rispondi
+non tocca niente.
+
+Il file scaricato va caricato in `public/level.json` dalla UI web di GitHub
 (`Add file` -> `Upload files`, e **ricordati il pulsante verde `Commit changes`**
-in fondo alla pagina).
+in fondo alla pagina). Finche' non fai questo, il lavoro sta solo sul tuo
+telefono: **💾 Salva non basta a farlo vedere nel gioco.**
 
 In editor non c'e' il personaggio: si costruisce ovunque, senza il vincolo di
 portata.
@@ -98,7 +143,7 @@ portata.
 |---|---|
 | `src/assets/blocks/*.png` | I blocchi piazzabili. **Il nome del file e' l'id**: `dirt.png` diventa il blocco "Dirt". |
 | `src/assets/characters/`, `src/assets/ui/` | Personaggio e pezzi di interfaccia. Qui i nomi contano: li cerca il codice. |
-| `public/level.json` | La disposizione dei blocchi, per layer. Prodotto dall'editor. |
+| `public/level.json` | Tutti i livelli, coi loro layer e blocchi. Prodotto dall'editor. |
 | `public/assets/*.png` | Archivio degli sprite del progetto GDevelop. Non lo usa nessuno: e' li' perche' non si buttano via i disegni. |
 
 ### Aggiungere un blocco nuovo
@@ -139,6 +184,11 @@ quindi da `public/` servirebbe un elenco scritto a mano.
   `src/assets/blocks/` compare da solo nella palette e nell'inventario
 - **Layer** con nome, visibilita' e quota: si costruisce anche in verticale, e
   in gioco il tocco prende sempre il blocco piu' in alto
+- **Piu' livelli in un file solo**, con le schede nell'editor e `?level=` in gioco
+- **Salvataggio locale con conferma**: l'editor ricorda, ma chiede sempre prima
+  di ripristinare
+- **Selezione a rettangolo**, con spostamento ed eliminazione
+- **Due dita** per spostarsi e ingrandire, in qualsiasi strumento
 
 Dettagli, verifiche e rischi aperti stanno in [PIANO.md](PIANO.md).
 

@@ -1,7 +1,16 @@
 import Phaser from 'phaser';
 import { GRID, LAYERS, type BlockType } from '../config';
 import { BLOCKS } from '../assets/catalog';
-import { GridPlacement, type SerializedLevel } from '../mechanics/GridPlacement';
+import { GridPlacement } from '../mechanics/GridPlacement';
+import {
+  emptyLevel,
+  type SerializedLevel,
+  type SerializedProject,
+} from '../level/project';
+import { CameraGestures, ZOOM_STEP } from './CameraGestures';
+import { SelectionTool } from './SelectionTool';
+import { EditorStorage, describeWhen } from './EditorStorage';
+import { chooseDialog } from './dialog';
 
 /**
  * Modalita' editor: si attiva aggiungendo ?editor=1 all'URL.
@@ -24,50 +33,84 @@ interface GameSceneLike extends Phaser.Scene {
   readonly gridVisible: boolean;
   /** La cella sotto il puntatore, gia' corretta per l'alzata del layer attivo. */
   cellUnder(p: Phaser.Input.Pointer): { col: number; row: number };
+  readonly activeElevationY: number;
 }
 
 /**
- * Uno stato completo dell'editor, per l'undo: la scena e il layer su cui si
- * stava lavorando. Senza il secondo, annullare riporterebbe i blocchi giusti
- * ma lascerebbe la mano sul piano sbagliato.
+ * Uno stato completo dell'editor, per l'undo.
+ *
+ * Contiene **tutto il progetto**, non solo il livello aperto. Costa qualche
+ * kilobyte per passo, ma rende annullabili anche le operazioni sulle schede —
+ * una scheda eliminata per sbaglio si recupera con Ctrl+Z come qualsiasi altra
+ * cosa, e non c'e' una categoria di azioni "speciali" da spiegare.
  */
-type Snapshot = { level: SerializedLevel; active: number };
+type Snapshot = { project: SerializedProject; level: number; layer: number };
 
-const TOOLS = ['brush', 'erase', 'fill', 'pan'] as const;
+const TOOLS = ['brush', 'erase', 'fill', 'select', 'pan'] as const;
 type Tool = (typeof TOOLS)[number];
 
-const TOOL_LABELS: Record<Tool, string> = {
-  brush: '🖌 Pennello',
-  erase: '🧽 Gomma',
-  fill: '🪣 Riempi',
-  pan: '✋ Sposta',
+/** Icona e parola separate: su schermo stretto resta solo l'icona. */
+const TOOL_LABELS: Record<Tool, [icon: string, text: string]> = {
+  brush: ['🖌', 'Pennello'],
+  erase: ['🧽', 'Gomma'],
+  fill: ['🪣', 'Riempi'],
+  select: ['⬚', 'Seleziona'],
+  pan: ['✋', 'Sposta'],
+};
+
+const TOOL_KEYS: Record<string, Tool> = {
+  b: 'brush',
+  e: 'erase',
+  g: 'fill',
+  s: 'select',
+  h: 'pan',
 };
 
 /** Quanti passi indietro si possono fare. */
 const UNDO_LIMIT = 60;
 
-const ZOOM_MIN = 0.4;
-const ZOOM_MAX = 2.5;
-const ZOOM_STEP = 1.25;
+/** Copia profonda. Gli snapshot non devono condividere niente con lo stato vivo. */
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
 export class LevelEditor {
   private readonly scene: GameSceneLike;
   private readonly placement: GridPlacement;
+  private readonly gestures: CameraGestures;
+  private readonly selection: SelectionTool;
+  private readonly storage = new EditorStorage();
+
   private root!: HTMLDivElement;
+  private tabBar!: HTMLDivElement;
+  private tabList!: HTMLDivElement;
   private layerPanel!: HTMLDivElement;
   private layerList!: HTMLDivElement;
   private countLabel!: HTMLSpanElement;
+  private statusLabel!: HTMLSpanElement;
   private paletteButtons = new Map<BlockType, HTMLButtonElement>();
   private toolButtons = new Map<Tool, HTMLButtonElement>();
   private undoButton!: HTMLButtonElement;
   private redoButton!: HTMLButtonElement;
+  private deleteButton!: HTMLButtonElement;
   private addLayerButton!: HTMLButtonElement;
 
   private tool: Tool = 'brush';
 
-  // L'undo tiene stati interi, non operazioni: vedi GridPlacement.load().
+  /**
+   * I livelli del progetto. Quello aperto vive dentro `placement`, gli altri
+   * qui in forma serializzata: c'e' una scena sola, e tenerne cinque montate
+   * significherebbe cinque volte gli sprite per niente.
+   */
+  private levels: SerializedLevel[] = [emptyLevel()];
+  private activeLevelIndex = 0;
+
   private undoStack: Snapshot[] = [];
   private redoStack: Snapshot[] = [];
+
+  /** Modifiche successive all'ultimo Salva. */
+  private dirty = false;
+  private lastSavedAt: number | null = null;
 
   /** Traccia in corso: serve a non ripetere l'operazione sulla stessa cella. */
   private strokeCell: string | null = null;
@@ -76,17 +119,192 @@ export class LevelEditor {
   private strokeStart: Snapshot | null = null;
   private panFrom: { x: number; y: number; scrollX: number; scrollY: number } | null = null;
 
-  constructor(scene: Phaser.Scene, placement: GridPlacement) {
+  constructor(scene: Phaser.Scene, placement: GridPlacement, published: SerializedProject) {
     this.scene = scene as GameSceneLike;
     this.placement = placement;
+    this.gestures = new CameraGestures(scene);
+    this.selection = new SelectionTool(scene, placement);
 
     this.buildToolbar();
+    this.buildLevelTabs();
     this.buildLayerPanel();
     this.bindInput();
     this.bindKeyboard();
-    // La vista parte inquadrata: vedi sotto perche' non basta la posizione di
-    // partenza della camera.
     this.resetView();
+
+    // Il lavoro in sospeso puo' richiedere una domanda, e una domanda non si
+    // puo' fare dentro un costruttore: si apre sul progetto pubblicato e la
+    // risposta, se arriva, lo sostituisce.
+    this.adopt(published, 0);
+    void this.offerResume(published);
+  }
+
+  // -------------------------------------------------- progetto e livelli
+
+  /** Il progetto intero, col livello aperto riletto dalla scena. */
+  private project(): SerializedProject {
+    const levels = this.levels.map((level, i) =>
+      i === this.activeLevelIndex
+        ? { name: level.name, layers: this.placement.serializeLayers() }
+        : clone(level),
+    );
+    return { levels };
+  }
+
+  /** Sostituisce tutto il progetto e apre il livello indicato. */
+  private adopt(project: SerializedProject, levelIndex: number): void {
+    this.levels = clone(project.levels);
+    this.activeLevelIndex = Phaser.Math.Clamp(levelIndex, 0, this.levels.length - 1);
+    this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
+    this.selection.clear();
+    this.refresh();
+  }
+
+  /**
+   * Passa a un'altra scheda.
+   *
+   * Il livello che si lascia viene riletto dalla scena prima di montare
+   * l'altro: e' l'unico punto in cui il lavoro non ancora serializzato
+   * potrebbe sparire.
+   */
+  private openLevel(index: number): void {
+    if (index === this.activeLevelIndex || index < 0 || index >= this.levels.length) return;
+
+    this.levels = this.project().levels;
+    this.activeLevelIndex = index;
+    this.placement.loadLayers(this.levels[index]!.layers);
+    this.selection.clear();
+    // La cronologia resta valida: gli snapshot contengono il progetto intero,
+    // quindi un undo dopo il cambio scheda riporta anche alla scheda giusta.
+    this.touch();
+  }
+
+  private addLevel(): void {
+    this.edit(() => {
+      this.levels = this.project().levels;
+      this.levels.push(emptyLevel(`Livello ${this.levels.length + 1}`));
+      this.activeLevelIndex = this.levels.length - 1;
+      this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
+      this.selection.clear();
+    });
+  }
+
+  private duplicateLevel(): void {
+    this.edit(() => {
+      this.levels = this.project().levels;
+      const source = this.levels[this.activeLevelIndex]!;
+      this.levels.splice(this.activeLevelIndex + 1, 0, {
+        name: `${source.name} (copia)`,
+        layers: clone(source.layers),
+      });
+      this.activeLevelIndex += 1;
+      this.selection.clear();
+    });
+  }
+
+  private renameLevel(): void {
+    const current = this.levels[this.activeLevelIndex]!.name;
+    const name = window.prompt('Nome del livello', current);
+    if (name === null || name.trim() === '' || name.trim() === current) return;
+
+    this.edit(() => {
+      this.levels = this.project().levels;
+      this.levels[this.activeLevelIndex]!.name = name.trim();
+    });
+  }
+
+  private async deleteLevel(): Promise<void> {
+    if (this.levels.length <= 1) return;
+
+    const level = this.levels[this.activeLevelIndex]!;
+    const blocks = this.placement.count;
+    const choice = await chooseDialog('Eliminare la scheda?', `"${level.name}" con ${blocks} blocchi.`, [
+      { id: 'cancel', label: 'Annulla' },
+      { id: 'delete', label: 'Elimina', detail: 'Si recupera con Ctrl+Z', danger: true },
+    ] as const);
+    if (choice !== 'delete') return;
+
+    this.edit(() => {
+      this.levels = this.project().levels;
+      this.levels.splice(this.activeLevelIndex, 1);
+      this.activeLevelIndex = Math.min(this.activeLevelIndex, this.levels.length - 1);
+      this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
+      this.selection.clear();
+    });
+  }
+
+  // --------------------------------------------------- salvataggio locale
+
+  /**
+   * All'apertura, se in questo browser c'e' del lavoro diverso dal file
+   * pubblicato, la scelta la fa chi ha costruito.
+   *
+   * Ripristinare in silenzio sarebbe peggio in entrambi i versi: chi ha appena
+   * caricato un `level.json` nuovo su GitHub non capirebbe perche' vede ancora
+   * il vecchio, e chi ha chiuso la scheda per sbaglio si vedrebbe sovrascritto
+   * senza accorgersene.
+   */
+  private async offerResume(published: SerializedProject): Promise<void> {
+    const stored = this.storage.read();
+    if (!stored) return;
+    if (JSON.stringify(stored.project) === JSON.stringify(published)) {
+      // Identici: il lavoro locale e' gia' nel gioco, non c'e' niente da chiedere.
+      this.lastSavedAt = stored.savedAt;
+      this.dirty = false;
+      this.refresh();
+      return;
+    }
+
+    const when = describeWhen(stored.savedAt);
+    const choice = await chooseDialog(
+      'C’è del lavoro in questo browser',
+      stored.dirty
+        ? `Modifiche mai salvate, l’ultima ${when}.`
+        : `Salvato ${when}, ma diverso dal level.json pubblicato.`,
+      [
+        {
+          id: 'resume',
+          label: 'Riprendi',
+          detail: `${stored.project.levels.length} livelli come li avevi lasciati`,
+        },
+        {
+          id: 'restart',
+          label: 'Ricomincia dal file pubblicato',
+          detail: 'Butta via il lavoro locale, senza possibilità di tornare indietro',
+          danger: true,
+        },
+      ] as const,
+    );
+
+    if (choice === 'resume') {
+      this.adopt(stored.project, stored.activeLevel);
+      this.dirty = stored.dirty;
+      this.lastSavedAt = stored.dirty ? null : stored.savedAt;
+    } else {
+      this.storage.clear();
+      this.adopt(published, 0);
+      this.dirty = false;
+      this.lastSavedAt = null;
+    }
+    this.refresh();
+  }
+
+  private collectWork(dirty: boolean): Parameters<EditorStorage['write']>[0] {
+    return { dirty, activeLevel: this.activeLevelIndex, project: this.project() };
+  }
+
+  /** Salva esplicito: da qui in poi questo e' lo stato buono. */
+  private save(): void {
+    this.storage.write(this.collectWork(false));
+    this.dirty = false;
+    this.lastSavedAt = Date.now();
+    this.refresh();
+  }
+
+  /** Una modifica qualsiasi: segna il lavoro come non salvato e programma l'autosave. */
+  private touch(): void {
+    this.dirty = true;
+    this.storage.queueAutosave(() => this.collectWork(true));
     this.refresh();
   }
 
@@ -95,7 +313,21 @@ export class LevelEditor {
   private bindInput(): void {
     const input = this.scene.input;
 
+    // Il secondo dito annulla quello che il primo stava facendo: appoggiando
+    // due dita per spostarsi non si deve restare con un blocco piazzato per
+    // sbaglio dove e' atterrato il primo.
+    this.gestures.onGestureStart = () => {
+      this.pointerDown = false;
+      this.panFrom = null;
+      this.selection.cancel();
+      if (this.strokeStart) {
+        this.restore(this.strokeStart);
+        this.strokeStart = null;
+      }
+    };
+
     input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
+      if (this.gestures.active) return;
       this.pointerDown = true;
 
       if (this.tool === 'pan') {
@@ -108,11 +340,17 @@ export class LevelEditor {
       // un trascinamento che tocca 30 celle deve costare un solo undo.
       this.strokeStart = this.snapshot();
       this.strokeCell = null;
+
+      if (this.tool === 'select') {
+        this.selection.begin(this.worldOnPlane(p), this.scene.cellUnder(p));
+        this.refresh();
+        return;
+      }
       this.applyAt(p);
     });
 
     input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
-      if (!this.pointerDown) return;
+      if (!this.pointerDown || this.gestures.active) return;
 
       if (this.tool === 'pan') {
         if (!this.panFrom) return;
@@ -123,36 +361,55 @@ export class LevelEditor {
         return;
       }
 
+      if (this.tool === 'select') {
+        this.selection.update(this.worldOnPlane(p), this.scene.cellUnder(p));
+        return;
+      }
+
       // Il riempimento a trascinamento sarebbe distruttivo e incomprensibile.
       if (this.tool === 'fill') return;
       this.applyAt(p);
     });
 
-    input.on(Phaser.Input.Events.POINTER_UP, () => {
-      this.pointerDown = false;
-      this.panFrom = null;
-      this.commitStroke();
-    });
-
+    input.on(Phaser.Input.Events.POINTER_UP, () => this.endStroke());
     // Il dito che esce dal canvas non deve lasciare la traccia aperta.
-    input.on(Phaser.Input.Events.GAME_OUT, () => {
-      this.pointerDown = false;
-      this.panFrom = null;
-      this.commitStroke();
-    });
+    input.on(Phaser.Input.Events.GAME_OUT, () => this.endStroke());
+  }
 
-    input.on(
-      Phaser.Input.Events.POINTER_WHEEL,
-      (_p: Phaser.Input.Pointer, _o: unknown[], _dx: number, dy: number) => {
-        this.zoomBy(dy > 0 ? 1 / ZOOM_STEP : ZOOM_STEP);
-      },
-    );
+  private endStroke(): void {
+    const wasDown = this.pointerDown;
+    this.pointerDown = false;
+    this.panFrom = null;
+    if (!wasDown) return;
+
+    if (this.tool === 'select') {
+      // Una selezione che non sposta niente non e' una modifica della scena:
+      // non deve finire nella cronologia.
+      const changed = this.selection.end();
+      if (!changed) this.strokeStart = null;
+      this.refresh();
+    }
+    this.commitStroke();
+  }
+
+  /**
+   * Il punto del mondo sotto il dito, senza correzioni.
+   *
+   * Qui la quota **non** va tolta, al contrario di `cellUnder`. Il rettangolo di
+   * selezione e' una figura sullo schermo, e viene confrontato con la posizione
+   * degli sprite, che sullo schermo sono gia' disegnati alzati: entrambi i
+   * termini sono nello stesso spazio, e correggerne uno solo li disallineerebbe.
+   */
+  private worldOnPlane(p: Phaser.Input.Pointer): { x: number; y: number } {
+    return { x: p.worldX, y: p.worldY };
   }
 
   private bindKeyboard(): void {
     // Le scorciatoie stanno sul document e non su Phaser: la toolbar e' HTML,
     // e con il focus su un pulsante la tastiera di Phaser non riceve nulla.
     document.addEventListener('keydown', (e) => {
+      if (e.target instanceof HTMLInputElement) return;
+
       if (e.ctrlKey || e.metaKey) {
         const k = e.key.toLowerCase();
         if (k === 'z' && !e.shiftKey) {
@@ -161,18 +418,35 @@ export class LevelEditor {
         } else if ((k === 'z' && e.shiftKey) || k === 'y') {
           e.preventDefault();
           this.redo();
+        } else if (k === 's') {
+          e.preventDefault();
+          this.save();
         }
         return;
       }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (this.selection.count > 0) {
+          e.preventDefault();
+          this.deleteSelection();
+        }
+        return;
+      }
+      if (e.key === 'Escape') return this.selection.clear();
 
       // Parentesi quadre per salire e scendere di piano: sono le stesse di
       // Photoshop per cambiare livello, e stanno vicine su ogni layout.
       if (e.key === '[') return this.selectLayer(this.placement.activeLayer - 1);
       if (e.key === ']') return this.selectLayer(this.placement.activeLayer + 1);
 
-      const shortcuts: Record<string, Tool> = { b: 'brush', e: 'erase', g: 'fill', h: 'pan' };
-      const tool = shortcuts[e.key.toLowerCase()];
+      const tool = TOOL_KEYS[e.key.toLowerCase()];
       if (tool) this.setTool(tool);
+    });
+
+    // L'autosave e' ritardato: chiudendo la scheda subito dopo una modifica,
+    // senza questo, l'ultima cosa fatta non verrebbe scritta.
+    window.addEventListener('beforeunload', () => {
+      this.storage.flush(() => this.collectWork(this.dirty));
     });
   }
 
@@ -237,10 +511,19 @@ export class LevelEditor {
     }
   }
 
+  private deleteSelection(): void {
+    if (this.selection.count === 0) return;
+    this.edit(() => this.selection.deleteSelected());
+  }
+
   // ----------------------------------------------------------------- undo
 
   private snapshot(): Snapshot {
-    return { level: this.placement.serialize(), active: this.placement.activeLayer };
+    return {
+      project: this.project(),
+      level: this.activeLevelIndex,
+      layer: this.placement.activeLayer,
+    };
   }
 
   /** Chiude la traccia corrente e la registra, se ha cambiato qualcosa. */
@@ -248,16 +531,15 @@ export class LevelEditor {
     this.strokeCell = null;
     const before = this.strokeStart;
     this.strokeStart = null;
-    if (!before) return;
-    this.push(before);
+    if (before) this.push(before);
   }
 
   /**
    * Impila uno stato precedente, se davvero diverso da quello attuale.
    *
    * Il confronto e' sul serializzato: due stati con gli stessi blocchi negli
-   * stessi layer sono lo stesso stato, e `serialize()` ordina i blocchi, quindi
-   * il confronto e' stabile.
+   * stessi layer sono lo stesso stato, e i blocchi escono ordinati, quindi il
+   * confronto e' stabile.
    */
   private push(before: Snapshot): void {
     if (JSON.stringify(before) === JSON.stringify(this.snapshot())) return;
@@ -266,10 +548,10 @@ export class LevelEditor {
     if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
     // Una nuova modifica invalida il futuro che si era tornati indietro a vedere.
     this.redoStack = [];
-    this.refresh();
+    this.touch();
   }
 
-  /** Esegue una modifica di struttura registrandola nell'undo. */
+  /** Esegue una modifica registrandola nell'undo. */
   private edit(change: () => void): void {
     const before = this.snapshot();
     change();
@@ -278,9 +560,12 @@ export class LevelEditor {
   }
 
   private restore(snapshot: Snapshot): void {
-    this.placement.load(snapshot.level);
-    this.placement.activeLayer = snapshot.active;
-    this.refresh();
+    this.levels = clone(snapshot.project.levels);
+    this.activeLevelIndex = Phaser.Math.Clamp(snapshot.level, 0, this.levels.length - 1);
+    this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
+    this.placement.activeLayer = snapshot.layer;
+    this.selection.clear();
+    this.touch();
   }
 
   private undo(): void {
@@ -297,12 +582,7 @@ export class LevelEditor {
     this.restore(next);
   }
 
-  // ----------------------------------------------------------------- zoom
-
-  private zoomBy(factor: number): void {
-    const cam = this.scene.cameras.main;
-    cam.setZoom(Phaser.Math.Clamp(cam.zoom * factor, ZOOM_MIN, ZOOM_MAX));
-  }
+  // ----------------------------------------------------------------- vista
 
   /**
    * Riporta la vista sul centro della griglia.
@@ -334,11 +614,15 @@ export class LevelEditor {
 
     this.placement.activeLayer = index;
     if (!this.placement.layers[index]!.visible) this.placement.setLayerVisible(index, true);
+    // La selezione appartiene al layer su cui e' stata fatta.
+    this.selection.clear();
     this.refresh();
   }
 
   private setTool(tool: Tool): void {
     this.tool = tool;
+    if (tool === 'select') this.selection.show();
+    else this.selection.hide();
     this.refresh();
   }
 
@@ -358,9 +642,28 @@ export class LevelEditor {
     return this.scene.textures.getBase64(texture);
   }
 
-  private button(label: string, onClick: () => void, parent: HTMLElement = this.root): HTMLButtonElement {
+  private button(label: string, onClick: () => void, parent: HTMLElement): HTMLButtonElement {
     const b = document.createElement('button');
     b.textContent = label;
+    b.onclick = onClick;
+    parent.appendChild(b);
+    return b;
+  }
+
+  /**
+   * Pulsante con icona e parola. Sotto i 600px la parola sparisce e resta
+   * l'icona: su un telefono da 390px la barra a parole occupava il 44% dello
+   * schermo, cioe' piu' della scena che si sta costruendo.
+   */
+  private iconButton(
+    icon: string,
+    text: string,
+    onClick: () => void,
+    parent: HTMLElement,
+  ): HTMLButtonElement {
+    const b = document.createElement('button');
+    b.innerHTML = `<span class="ico">${icon}</span><span class="txt">${text}</span>`;
+    b.title = text;
     b.onclick = onClick;
     parent.appendChild(b);
     return b;
@@ -371,30 +674,37 @@ export class LevelEditor {
       #editor-toolbar {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
         display: flex; flex-direction: column; gap: 8px;
+        /* Un tetto all'altezza: con molti pulsanti la barra mangerebbe lo
+           schermo del telefono invece di lasciar vedere la scena. */
+        max-height: 45vh; overflow-y: auto;
         padding: 8px calc(10px + env(safe-area-inset-left)) calc(10px + env(safe-area-inset-bottom));
         background: #24242e; border-top: 1px solid #3a3a48;
         font: 13px/1.4 system-ui, sans-serif; color: #e8e8ef;
       }
-      #editor-toolbar .controls {
-        display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-      }
+      #editor-toolbar .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      #editor-toolbar .tools button { display: inline-flex; align-items: center; gap: 6px; }
       /* La palette scorre invece di andare a capo: con molti sprite caricati
          una barra che cresce in altezza mangerebbe tutta la scena. */
       #editor-toolbar .palette-strip {
-        display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;
-        scrollbar-width: thin;
+        display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin;
       }
-      #editor-toolbar button, #layer-panel button {
+      #editor-toolbar button, #layer-panel button, #level-tabs button {
         min-height: 40px; padding: 0 14px; border-radius: 8px;
         border: 1px solid #3a3a48; background: #2f2f3d; color: #e8e8ef;
-        font: inherit; cursor: pointer; touch-action: manipulation;
+        font: inherit; cursor: pointer; touch-action: manipulation; white-space: nowrap;
       }
       #editor-toolbar button:hover:not(:disabled),
-      #layer-panel button:hover:not(:disabled) { background: #3a3a48; }
-      #editor-toolbar button:disabled, #layer-panel button:disabled { opacity: .35; cursor: default; }
-      #editor-toolbar button[aria-pressed="true"], #layer-panel button[aria-pressed="true"] {
+      #layer-panel button:hover:not(:disabled),
+      #level-tabs button:hover:not(:disabled) { background: #3a3a48; }
+      #editor-toolbar button:disabled, #layer-panel button:disabled, #level-tabs button:disabled {
+        opacity: .35; cursor: default;
+      }
+      #editor-toolbar button[aria-pressed="true"],
+      #layer-panel button[aria-pressed="true"],
+      #level-tabs button[aria-pressed="true"] {
         border-color: #ffd166; background: #4a4432; color: #ffd166;
       }
+      #editor-toolbar button.primary { border-color: #4a7a5a; background: #2c4436; }
       /* La palette mostra il blocco, non il suo nome: si sceglie a colpo d'occhio. */
       #editor-toolbar button.palette {
         display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -409,12 +719,28 @@ export class LevelEditor {
       }
       #editor-toolbar .sep { width: 1px; align-self: stretch; background: #3a3a48; }
       #editor-toolbar .spacer { flex: 1 1 auto; }
+      #editor-toolbar .status { font-size: 12px; opacity: .8; }
+      #editor-toolbar .status.dirty { color: #ffd166; opacity: 1; }
 
-      /* Il pannello sta a destra perche' l'HUD della scena occupa l'angolo
-         in alto a sinistra. */
+      /* Le schede stanno in cima e per tutta la larghezza: sono la cosa piu'
+         in alto nella gerarchia, un livello contiene i layer. */
+      #level-tabs {
+        position: fixed; z-index: 10;
+        top: env(safe-area-inset-top); left: 0; right: 0;
+        display: flex; gap: 6px; align-items: center;
+        padding: 6px calc(6px + env(safe-area-inset-left)) 6px calc(6px + env(safe-area-inset-right));
+        background: #1f1f28e6; border-bottom: 1px solid #3a3a48;
+        font: 13px/1.4 system-ui, sans-serif; color: #e8e8ef;
+      }
+      #level-tabs .tabs { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 auto; scrollbar-width: thin; }
+      #level-tabs .tabs button { min-height: 34px; padding: 0 12px; }
+      /* Le azioni non scorrono via con le schede: restano raggiungibili. */
+      #level-tabs .actions { display: flex; gap: 4px; flex: 0 0 auto; }
+      #level-tabs .actions button { min-height: 34px; padding: 0 9px; }
+
       #layer-panel {
         position: fixed; z-index: 10;
-        top: calc(8px + env(safe-area-inset-top));
+        top: calc(56px + env(safe-area-inset-top));
         right: calc(8px + env(safe-area-inset-right));
         width: 210px; max-width: calc(100vw - 16px);
         display: flex; flex-direction: column; gap: 6px; padding: 8px;
@@ -436,6 +762,19 @@ export class LevelEditor {
       #layer-panel .actions button { flex: 1 1 0; min-height: 34px; padding: 0; }
       #layer-panel.collapsed .list, #layer-panel.collapsed .actions { display: none; }
       #layer-panel .hint { font-size: 11px; opacity: .6; }
+
+      /* Su telefono la barra a parole occupava il 44% dello schermo, cioe' piu'
+         della scena che si sta costruendo. Gli strumenti restano solo icone:
+         sono sei, si imparano subito, e liberano due righe. */
+      @media (max-width: 600px) {
+        #editor-toolbar .tools .txt { display: none; }
+        #editor-toolbar .tools button { padding: 0 12px; font-size: 17px; }
+        #editor-toolbar button, #layer-panel button, #level-tabs button { min-height: 38px; }
+        /* Il nome del layer porta anche il conteggio dei blocchi: stringendo
+           la riga invece del pannello, non viene tagliato. */
+        #layer-panel .row button { padding: 0 4px; }
+        #layer-panel .row .quota { font-size: 12px; }
+      }
     `;
   }
 
@@ -458,37 +797,37 @@ export class LevelEditor {
         this.placement.selected = block.id;
         // Scegliere un blocco significa volerlo piazzare: con la gomma attiva
         // il clic successivo cancellerebbe, che non e' quello che si intende.
-        if (this.tool === 'erase') this.tool = 'brush';
-        this.refresh();
+        if (this.tool === 'erase') this.setTool('brush');
+        else this.refresh();
       };
       strip.appendChild(b);
       this.paletteButtons.set(block.id, b);
     }
 
-    // Riga 2: strumenti, cronologia, vista, esportazione.
-    const controls = document.createElement('div');
-    controls.className = 'controls';
-    this.root.appendChild(controls);
-
+    // Riga 2: strumenti.
+    const tools = document.createElement('div');
+    tools.className = 'controls tools';
+    this.root.appendChild(tools);
     for (const tool of TOOLS) {
-      this.toolButtons.set(tool, this.button(TOOL_LABELS[tool], () => this.setTool(tool), controls));
+      const [icon, text] = TOOL_LABELS[tool];
+      this.toolButtons.set(tool, this.iconButton(icon, text, () => this.setTool(tool), tools));
     }
+    this.deleteButton = this.iconButton('🗑', 'Cancella', () => this.deleteSelection(), tools);
+    this.deleteButton.title = 'Elimina i blocchi selezionati (Canc)';
 
-    controls.appendChild(Object.assign(document.createElement('span'), { className: 'sep' }));
+    // Riga 3: cronologia, vista, griglia, conteggio.
+    const view = document.createElement('div');
+    view.className = 'controls';
+    this.root.appendChild(view);
 
-    this.undoButton = this.button('↶', () => this.undo(), controls);
+    this.undoButton = this.button('↶', () => this.undo(), view);
     this.undoButton.title = 'Annulla (Ctrl+Z)';
-    this.redoButton = this.button('↷', () => this.redo(), controls);
+    this.redoButton = this.button('↷', () => this.redo(), view);
     this.redoButton.title = 'Rifai (Ctrl+Shift+Z)';
 
-    this.button('−', () => this.zoomBy(1 / ZOOM_STEP), controls).title = 'Riduci';
-    this.button('+', () => this.zoomBy(ZOOM_STEP), controls).title = 'Ingrandisci';
-    this.button('⤢', () => this.resetView(), controls).title = 'Reimposta vista';
-
-    controls.appendChild(Object.assign(document.createElement('span'), { className: 'spacer' }));
-
-    this.countLabel = document.createElement('span');
-    controls.appendChild(this.countLabel);
+    this.button('−', () => this.gestures.zoomBy(1 / ZOOM_STEP), view).title = 'Riduci';
+    this.button('+', () => this.gestures.zoomBy(ZOOM_STEP), view).title = 'Ingrandisci';
+    this.button('⤢', () => this.resetView(), view).title = 'Reimposta vista';
 
     // Nasconde le linee della griglia per guardare la scena pulita.
     // Lo snap resta comunque attivo: si tocca sempre una cella.
@@ -503,10 +842,36 @@ export class LevelEditor {
       syncGridLabel();
     };
     syncGridLabel();
-    controls.appendChild(grid);
+    view.appendChild(grid);
 
-    const copy = this.button('Copia JSON', () => this.copyToClipboard(copy), controls);
-    this.button('Scarica level.json', () => this.download(), controls);
+    view.appendChild(Object.assign(document.createElement('span'), { className: 'spacer' }));
+    this.countLabel = document.createElement('span');
+    view.appendChild(this.countLabel);
+
+    // Riga 4: salvataggio ed esportazione.
+    const file = document.createElement('div');
+    file.className = 'controls';
+    this.root.appendChild(file);
+
+    const saveButton = this.button('💾 Salva', () => this.save(), file);
+    saveButton.className = 'primary';
+    saveButton.title = this.storage.available
+      ? 'Salva in questo browser (Ctrl+S). Per portarlo nel gioco serve Scarica level.json'
+      : 'Questo browser non permette il salvataggio locale';
+    saveButton.disabled = !this.storage.available;
+
+    this.statusLabel = document.createElement('span');
+    this.statusLabel.className = 'status';
+    file.appendChild(this.statusLabel);
+
+    file.appendChild(Object.assign(document.createElement('span'), { className: 'spacer' }));
+
+    // Qui le parole restano anche su schermo stretto: sono le azioni che si
+    // sbagliano peggio, e "scarica" e "copia" non si distinguono a icone.
+    const copy = this.button('📋 Copia', () => this.copyToClipboard(copy), file);
+    copy.title = 'Copia il JSON negli appunti';
+    this.button('⬇ Scarica', () => this.download(), file).title =
+      'Scarica level.json: è il file da caricare su GitHub, ed è questo che porta il lavoro nel gioco';
 
     // Da telefono, togliere ?editor=1 a mano dalla barra dell'indirizzo e'
     // scomodo: tanto vale un pulsante.
@@ -514,9 +879,29 @@ export class LevelEditor {
       const url = new URL(location.href);
       url.searchParams.delete('editor');
       location.href = url.toString();
-    }, controls).title = 'Esce dall editor e ricarica il gioco';
+    }, file).title = 'Esce dall editor e ricarica il gioco';
 
     document.body.appendChild(this.root);
+  }
+
+  private buildLevelTabs(): void {
+    this.tabBar = document.createElement('div');
+    this.tabBar.id = 'level-tabs';
+
+    this.tabList = document.createElement('div');
+    this.tabList.className = 'tabs';
+    this.tabBar.appendChild(this.tabList);
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    this.tabBar.appendChild(actions);
+
+    this.button('+', () => this.addLevel(), actions).title = 'Nuovo livello';
+    this.button('⧉', () => this.duplicateLevel(), actions).title = 'Duplica il livello aperto';
+    this.button('✎', () => this.renameLevel(), actions).title = 'Rinomina il livello aperto';
+    this.button('🗑', () => void this.deleteLevel(), actions).title = 'Elimina il livello aperto';
+
+    document.body.appendChild(this.tabBar);
   }
 
   private buildLayerPanel(): void {
@@ -553,8 +938,8 @@ export class LevelEditor {
       .title = 'Sposta il layer attivo sopra il successivo';
     this.button('▼', () => this.edit(() => this.placement.moveLayer(this.placement.activeLayer, -1)), actions)
       .title = 'Sposta il layer attivo sotto il precedente';
-    this.button('✎', () => this.renameActive(), actions).title = 'Rinomina il layer attivo';
-    this.button('🗑', () => this.deleteActive(), actions).title = 'Elimina il layer attivo';
+    this.button('✎', () => this.renameActiveLayer(), actions).title = 'Rinomina il layer attivo';
+    this.button('🗑', () => void this.deleteActiveLayer(), actions).title = 'Elimina il layer attivo';
 
     const hint = document.createElement('div');
     hint.className = 'hint';
@@ -564,23 +949,38 @@ export class LevelEditor {
     document.body.appendChild(this.layerPanel);
   }
 
-  private renameActive(): void {
+  private renameActiveLayer(): void {
     const index = this.placement.activeLayer;
     const current = this.placement.layers[index]?.name ?? '';
     const name = window.prompt('Nome del layer', current);
-    if (name === null || name.trim() === '' || name === current) return;
+    if (name === null || name.trim() === '' || name.trim() === current) return;
     this.edit(() => this.placement.renameLayer(index, name.trim()));
   }
 
-  private deleteActive(): void {
+  private async deleteActiveLayer(): Promise<void> {
     const index = this.placement.activeLayer;
     const layer = this.placement.layers[index];
-    if (!layer) return;
+    if (!layer || this.placement.layers.length <= 1) return;
 
     const blocks = this.placement.countOn(index);
     // Cancellare un layer pieno butta via lavoro: la conferma serve solo li'.
-    if (blocks > 0 && !window.confirm(`Eliminare "${layer.name}" e i suoi ${blocks} blocchi?`)) return;
+    if (blocks > 0) {
+      const choice = await chooseDialog('Eliminare il layer?', `"${layer.name}" con ${blocks} blocchi.`, [
+        { id: 'cancel', label: 'Annulla' },
+        { id: 'delete', label: 'Elimina', detail: 'Si recupera con Ctrl+Z', danger: true },
+      ] as const);
+      if (choice !== 'delete') return;
+    }
     this.edit(() => this.placement.removeLayer(index));
+  }
+
+  /** Ricostruisce le schede. Sono poche: rifarle e' piu' sicuro che aggiornarle. */
+  private refreshTabs(): void {
+    this.tabList.textContent = '';
+    this.levels.forEach((level, index) => {
+      const tab = this.button(level.name, () => this.openLevel(index), this.tabList);
+      tab.setAttribute('aria-pressed', String(index === this.activeLevelIndex));
+    });
   }
 
   /** Ricostruisce l'elenco dei layer. Sono pochi: rifarlo e' piu' sicuro che aggiornarlo. */
@@ -628,7 +1028,7 @@ export class LevelEditor {
 
   /** Il contenuto esatto di public/level.json. */
   private serialize(): string {
-    return `${JSON.stringify(this.placement.serialize(), null, 2)}\n`;
+    return `${JSON.stringify(this.project(), null, 2)}\n`;
   }
 
   private download(): void {
@@ -653,7 +1053,10 @@ export class LevelEditor {
   }
 
   private refresh(): void {
-    this.countLabel.textContent = `${this.placement.count} blocchi`;
+    const selected = this.selection.count;
+    this.countLabel.textContent =
+      selected > 0 ? `${selected} selezionati / ${this.placement.count}` : `${this.placement.count} blocchi`;
+
     for (const [type, button] of this.paletteButtons) {
       button.setAttribute('aria-pressed', String(this.placement.selected === type));
     }
@@ -662,7 +1065,21 @@ export class LevelEditor {
     }
     this.undoButton.disabled = this.undoStack.length === 0;
     this.redoButton.disabled = this.redoStack.length === 0;
+    this.deleteButton.disabled = selected === 0;
     this.addLayerButton.disabled = this.placement.layers.length >= LAYERS.max;
+
+    if (!this.storage.available) {
+      this.statusLabel.textContent = 'salvataggio non disponibile';
+      this.statusLabel.classList.remove('dirty');
+    } else if (this.dirty) {
+      this.statusLabel.textContent = '● non salvato';
+      this.statusLabel.classList.add('dirty');
+    } else {
+      this.statusLabel.textContent = this.lastSavedAt ? `✓ salvato ${describeWhen(this.lastSavedAt)}` : '';
+      this.statusLabel.classList.remove('dirty');
+    }
+
+    this.refreshTabs();
     this.refreshLayers();
   }
 }
