@@ -370,14 +370,33 @@ Falso allarme da mettere a verbale: negli screenshot compariva una fascia bianca
 sopra il canvas. Con il rendering software sparisce — era un artefatto di
 compositing GPU della cattura headless, non un difetto della pagina.
 
+### Le Actions girano, e l'APK esiste — 8 agosto 2026
+
+Cadono altri due punti aperti dai tempi dell'avaria.
+
+| Workflow | Esito | Durata |
+|---|---|---|
+| `test.yml` | verde, 39 test su 39 | 1m41s |
+| `build-apk.yml` | verde, **APK da 6,5 MB** negli Artifacts | 1m59s |
+| `deploy-web.yml` | ancora mai completato | — |
+
+L'APK e' il primo mai prodotto dal progetto. Si scarica dagli *Artifacts* della
+run e scade dopo 90 giorni; sul telefono va autorizzata l'installazione da
+origini sconosciute, perche' e' un APK debug non firmato.
+
+Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
+`npx cap add android` genera un progetto minimo e il runner ha gia' l'SDK.
+
 ### Non verificato
 
-- **Le GitHub Actions non hanno mai completato una run.** Il job `build` ha
-  eseguito tutti i 15 step con successo, ma la pubblicazione non e' mai
-  avvenuta a causa dell'avaria (vedi sotto).
-- **L'APK non e' mai stato prodotto.**
+- **`deploy-web.yml` non ha mai completato una run.** Gira solo su `main`,
+  quindi le tre action di Pages restano da provare al primo merge. E' anche
+  l'unico workflow che pubblica qualcosa: lanciarlo da un branch avrebbe messo
+  online il lavoro in corso.
 - **Il tocco non e' mai stato provato su un telefono vero**, solo su un viewport
-  da 390x780 con il mouse.
+  da 390x780 con il mouse — e i test toccano lo schermo via protocollo, che non
+  e' la stessa cosa di un dito.
+- **L'APK non e' mai stato installato**: e' stato prodotto, non provato.
 
 ### Avaria GitHub del 6 agosto 2026
 
@@ -434,7 +453,9 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 6. ~~Test automatici~~ — **fatto**, 39 test in CI
 7. **Copia e incolla della selezione**, anche fra schede: la selezione c'e' ma
    si puo' solo spostare o cancellare
-8. Quando GitHub rientra: verificare deploy web e produrre il primo APK
+8. ~~Produrre il primo APK~~ — **fatto**, 6,5 MB negli Artifacts. Resta da
+   **installarlo su un telefono vero**, e da verificare il deploy web al primo
+   merge su `main`
 9. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
@@ -446,7 +467,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | **L'arte non e' isometrica** | `basic.png` e' una cassa frontale. Su griglia a rombi le facce non combaciano, e con i layer si vede di piu': impilando due blocchi le facce laterali non si allineano. E' lavoro di grafica |
 | **Il player e' minuscolo** | Visto a schermo: 26x64px su celle da 64x32, e' una macchiolina. La proporzione `317/788` dello sprite sorgente e' rispettata, ma l'altezza scelta (2 celle) e' troppo poca. Da ritarare guardando, ora che si puo' |
 | Quota e altezza dello sprite scollegate | Un passo di quota vale `tileHeight` (32px), ma gli sprite dei blocchi sono piu' alti della cella. Su arte isometrica vera i due numeri devono coincidere, altrimenti restano fessure o sovrapposizioni |
-| Le Actions non hanno mai completato | La build passa, la pubblicazione no. Da riverificare a guasto risolto |
+| `deploy-web.yml` mai completato | Gli altri due workflow sono verdi; questo gira solo su `main` e resta da provare al primo merge |
 | 51 PNG inutilizzati nel deploy | Archivio in `public/assets/`. Da togliere quando Fabrizio conferma |
 | **Salva non porta il lavoro nel gioco** | Salva scrive in `localStorage`, solo Scarica + upload su GitHub aggiorna il gioco. La UI lo dice in tre punti, ma resta il modo piu' facile di perdere una serata |
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
