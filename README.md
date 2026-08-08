@@ -12,6 +12,12 @@ salvano i progetti nel proprio cloud e non sanno leggere o scrivere su un
 repository GitHub. L'unica integrazione git documentata per GDevelop passa da
 GitHub Desktop, cioe' da un'installazione locale.
 
+Una precisazione su microStudio: da quando questa scelta e' stata fatta, il
+progetto e' stato rilasciato **open source con licenza MIT** ed e' ora
+self-hostable. La conclusione non cambia — ospitarlo significa gestire un
+server, cioe' proprio l'installazione che si voleva evitare — ma il motivo
+dell'esclusione e' "richiede un server", non piu' "e' un silo chiuso".
+
 La soluzione e' rovesciare l'assunto: **il repository non e' la copia del
 progetto, e' il progetto.** L'engine (Phaser) e' una libreria dentro il repo,
 non un'applicazione da cui esportare. Cosi' non esiste nessun silo da cui
@@ -55,12 +61,32 @@ https://<utente>.github.io/<repo>/?editor=1
 
 Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
 
-- **tocca una cella vuota** -> piazza un blocco del tipo selezionato
-- **tocca un blocco** -> lo toglie
-- i pulsanti in basso scelgono il tipo di blocco
-- **Griglia: on/off** nasconde le linee per guardare la scena pulita; lo snap
-  resta comunque attivo
-- **Scarica level.json** salva il file; **Copia JSON** lo mette negli appunti
+**La palette** mostra le immagini dei blocchi: si sceglie a colpo d'occhio, non
+leggendo un nome.
+
+**Quattro strumenti**, con scorciatoia da tastiera:
+
+| Strumento | Tasto | Cosa fa |
+|---|:---:|---|
+| 🖌 Pennello | `b` | piazza il blocco selezionato; **trascinando ne piazza molti** |
+| 🧽 Gomma | `e` | cancella, anche trascinando |
+| 🪣 Riempi | `g` | su cella vuota riempie l'area vuota collegata, su cella piena sostituisce l'area contigua dello stesso tipo |
+| ✋ Sposta | `h` | trascina la vista; in questa modalita' il tocco non piazza nulla |
+
+**Annulla e rifai** con i pulsanti `↶` `↷` o con `Ctrl+Z` e `Ctrl+Shift+Z`. Un
+trascinamento intero conta come un solo passo indietro, non uno per cella.
+
+**Zoom** con i pulsanti `−` `+` o con la rotella; `⤢` riporta la vista al punto
+di partenza.
+
+**Griglia: on/off** nasconde le linee per guardare la scena pulita; lo snap
+resta comunque attivo.
+
+**Scarica level.json** salva il file; **Copia JSON** lo mette negli appunti.
+
+Il secchiello su una cella vuota riempie *tutta* la griglia, perche' l'area
+vuota e' collegata: e' utile per stendere un pavimento e poi scavare, e un
+`Ctrl+Z` lo annulla.
 
 Poi carichi il file in `public/level.json` dalla UI web di GitHub
 (`Add file` -> `Upload files`, e **ricordati il pulsante verde `Commit changes`**
@@ -85,6 +111,7 @@ portata. Per tornare a giocare basta togliere `?editor=1`.
 | `src/mechanics/` | Le meccaniche. Una classe per meccanica, autonoma e testabile. |
 | `src/ui/` | Barra dell'inventario e altri elementi di interfaccia. |
 | `src/scenes/` | Montaggio della scena e input. |
+| `src/editor/` | L'editor di scene. In `vendor/` una copia di [blurymind/tilemap-editor](https://github.com/blurymind/tilemap-editor) (MIT) tenuta **come riferimento**: non gira, si consulta. Il perche' e' in `vendor/tilemap-editor/MODIFICHE.md`. |
 
 ## Cosa e' gia' implementato e verificato
 
@@ -96,7 +123,9 @@ portata. Per tornare a giocare basta togliere `?editor=1`.
 - **Portata di piazzamento** 224px: la cella diventa rossa se troppo lontana
 - **Inventario a 8 slot**: rompere restituisce il blocco, piazzare lo consuma
 - Caricamento della disposizione iniziale da `level.json`
-- Profondita' `col + row`, corretta per l'isometrica
+- Profondita' `col + row`, corretta per l'isometrica — **anche per il player**,
+  che entra nello stesso ordinamento dei blocchi tramite `depthForWorld()`
+- **Editor con strumenti, annulla, trascinamento e zoom** (vedi sopra)
 
 Dettagli, verifiche e rischi aperti stanno in [PIANO.md](PIANO.md).
 
