@@ -8,18 +8,21 @@ on:
   push:
     tags: ['v*']
 
+# Le action stanno alle major correnti: le v4 giravano su Node 20, che i runner
+# hanno dismesso. Java resta alla 17: e' quella che si aspetta il Gradle
+# generato da Capacitor, e non c'entra col Node dei runner.
 jobs:
   apk:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -43,7 +46,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tangible-cushion-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk

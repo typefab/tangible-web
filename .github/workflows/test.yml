@@ -17,15 +17,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Le action stanno alle major correnti: le v4 giravano su Node 20, che i runner
+# hanno dismesso e stavano gia' forzando a Node 24 con un avviso.
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
@@ -48,7 +50,7 @@ jobs:
       # fallimento su una macchina che non si puo' guardare.
       - name: Report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
