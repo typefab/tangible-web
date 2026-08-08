@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GRID, ISO, TIMING, BLOCKS, Z, RANGES, PLAYER, JOYSTICK, type BlockType } from '../config';
 import { projection } from '../grid/projection';
 import { GridPlacement } from '../mechanics/GridPlacement';
+import { GridCollision } from '../mechanics/GridCollision';
 import { Player } from '../mechanics/Player';
 import { VirtualJoystick } from '../mechanics/VirtualJoystick';
 import { Inventory } from '../mechanics/Inventory';
@@ -25,6 +26,7 @@ export class GameScene extends Phaser.Scene {
   private hud!: Phaser.GameObjects.Text;
   private editor?: LevelEditor;
   private player?: Player;
+  private collision?: GridCollision;
   private joystick?: VirtualJoystick;
   private inventory?: Inventory;
   private inventoryBar?: InventoryBar;
@@ -72,7 +74,15 @@ export class GameScene extends Phaser.Scene {
       // costruisce ovunque, senza il vincolo di portata.
       this.editor = new LevelEditor(this, this.placement);
     } else {
-      this.player = new Player(this, this.scale.width / 2, this.scale.height / 2);
+      // I blocchi diventano invalicabili. Il predicato interroga GridPlacement
+      // dal vivo, quindi un blocco piazzato adesso ferma subito, e uno rotto
+      // libera subito il passaggio: nessuna mappa di collisione da tenere
+      // allineata.
+      this.collision = new GridCollision(
+        (col, row) => this.placement.isOccupied(col, row),
+        PLAYER.colliderRadius,
+      );
+      this.player = new Player(this, this.scale.width / 2, this.scale.height / 2, this.collision);
       this.joystick = new VirtualJoystick(this);
 
       this.inventory = new Inventory();
@@ -188,6 +198,11 @@ export class GameScene extends Phaser.Scene {
         this.placement.beginBreak(col, row);
         return;
       }
+
+      // Non ci si mura addosso: la cella su cui si poggia resta libera.
+      // Senza questo controllo, ora che i blocchi fermano, ci si potrebbe
+      // chiudere dentro il proprio stesso piazzamento.
+      if (this.player && this.collision?.touches(this.player.x, this.player.y, col, row)) return;
 
       // Si controlla prima se il piazzamento e' possibile: altrimenti il
       // blocco verrebbe scalato dall'inventario e perso.

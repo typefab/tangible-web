@@ -1,7 +1,7 @@
 # Piano di lavoro — Tangible Cushion
 
 Documento di riferimento su scelte di architettura, stato e prossimi passi.
-Ultimo aggiornamento: 6 agosto 2026.
+Ultimo aggiornamento: 8 agosto 2026.
 
 ---
 
@@ -123,6 +123,32 @@ Conseguenze: la griglia disegna il perimetro di ogni cella invece di linee da
 bordo a bordo; l'evidenziazione della cella e' un poligono; la profondita' e'
 `col + row`.
 
+### Collisioni: i conti si fanno in spazio di cella
+
+Far collidere il personaggio contro un rombo vorrebbe dire ritagliare poligoni.
+Ma `projection.toCellSpace()` — la versione non arrotondata di `worldToCell` —
+porta il mondo in uno spazio dove **ogni cella e' il quadrato unitario**: li' i
+muri sono le rette `col = intero` e `row = intero`, e la collisione torna a
+essere quella classica rettangolo-contro-griglia.
+
+Ne segue che separare il movimento sui due assi `col` e `row` non e'
+un'approssimazione ma la cosa esatta: le facce dei blocchi sono perpendicolari
+a quegli assi. E' quello che produce lo scivolamento lungo il muro invece
+dell'incastro nell'angolo.
+
+Due conseguenze pratiche:
+
+- `GridCollision` riceve un predicato `isSolid`, non i blocchi: si prova senza
+  schermo e senza Phaser. La scena gli passa `placement.isOccupied`, letto dal
+  vivo, quindi **non esiste una mappa di collisione da tenere allineata** —
+  un blocco piazzato ferma subito, uno rotto libera subito.
+- L'ingombro del personaggio e' in unita' di cella (`PLAYER.colliderRadius`,
+  0.3), non in pixel. Deve restare sotto 0.5, altrimenti non passa in un varco
+  di una cella sola.
+
+La regola "se sei gia' dentro un blocco, passi" e' voluta: senza, chi si
+ritrova un blocco addosso resterebbe murato per sempre.
+
 ### Costanti
 
 Le costanti di gioco stanno in `src/config.ts`, portate 1:1 dalla tabella di
@@ -140,6 +166,7 @@ oscillazione `sin(t*18)*10` gradi, 8 slot di inventario.
 | Piazzamento e rottura su griglia | `mechanics/GridPlacement.ts` | cooldown, break progressivo, callback di raccolta |
 | Proiezione isometrica | `grid/projection.ts` | ortogonale disponibile come alternativa |
 | Player | `mechanics/Player.ts` | sprite dal progetto GDevelop, origine ai piedi |
+| Collisioni con i blocchi | `mechanics/GridCollision.ts` | conti in spazio di cella, scivolamento sui muri, mai murati |
 | Joystick virtuale | `mechanics/VirtualJoystick.ts` | multitouch, sprite `Transparent dark` |
 | Inventario 8 slot | `mechanics/Inventory.ts` | solo stato e regole, testabile senza schermo |
 | Barra inventario | `ui/InventoryBar.ts` | segnaposto se manca lo sprite, si adatta a schermi stretti |
@@ -159,6 +186,28 @@ Test principali superati:
 - nessuna sovrapposizione barra/joystick a 375x812 (48px di margine)
 - la build passa su Linux: `npm ci`, `npm run build`, upload artefatto
 
+Collisioni — 18 prove headless sulla logica (isometrica **e** ortogonale):
+
+- round-trip mondo -> cella -> mondo: errore massimo `2e-13` su 20.000 punti;
+  `worldToCell` coincide con il `floor` di `toCellSpace` su tutti
+- muro: 600 frame di spinta contro la parete, mai un frame dentro il blocco;
+  si ferma a `col = 4.6999`, cioe' appoggiato alla faccia meno lo spessore
+- diagonale contro il muro: l'asse bloccato si ferma, quello libero avanza
+  tutto (`row` fa esattamente i suoi 0.2)
+- varco di una cella sola: ci passa
+- gia' dentro un blocco: esce, non resta murato
+- labirinto di 300 blocchi, 20.000 passi casuali: **0 violazioni**
+
+E 7 prove pilotando il gioco vero in Chromium:
+
+- il game loop gira (34 frame), nessun errore in console
+- comparsa: con `level.json` caricato il centro schermo cade dentro il blocco
+  (10,8); `findFreeSpot` sposta il personaggio su (9,7), libero
+- scatola chiusa di 16 blocchi, spinta in 8 direzioni per 400 frame l'una:
+  non ne esce e non entra mai in un blocco
+- muro lungo: non lo attraversa e ci scivola lungo per 280px
+- rotto il muro, la stessa camminata avanza di 10 celle in piu'
+
 ### Bug trovati e corretti
 
 1. **`time.now === 0` dentro `create()`**: il cooldown scartava anche il primo
@@ -174,11 +223,24 @@ Test principali superati:
    shell, che sul runner Linux falliscono con `\r: command not found`. Prevenuto
    con `.gitattributes`.
 
+### Il gioco visto sullo schermo (8 agosto 2026)
+
+L'aspetto visivo era il grande non verificato: il game loop non girava nel
+pannello browser usato prima. Pilotando Chromium il loop gira, e per la prima
+volta si e' guardato lo schermo. Cosa si vede:
+
+- la griglia a rombi, il joystick e la barra a 8 slot con le anteprime dei
+  blocchi sono al loro posto, senza sovrapposizioni a 1100x700
+- **conferma del rischio noto: l'arte non e' isometrica.** I blocchi sono
+  casse frontali quadrate su una griglia a rombi. Non combaciano tra loro e
+  non seguono la diagonale delle celle: una fila di blocchi si legge come una
+  scala di quadrati staccati, non come un muro. E' lavoro di grafica
+- **il personaggio e' troppo piccolo e troppo scuro** per leggersi sul fondo
+  `#1b1b22`: 26x64px, quasi invisibile accanto ai blocchi da 64px. Da decidere
+  se e' la scala (`PLAYER.height`, oggi due celle) o lo sprite
+
 ### Non verificato
 
-- **L'aspetto visivo non e' mai stato visto.** Il game loop non gira nel
-  pannello browser dell'ambiente di sviluppo (`frames: 0`): tutta la logica e'
-  stata verificata pilotando lo stato, non guardando lo schermo.
 - **Le GitHub Actions non hanno mai completato una run.** Il job `build` ha
   eseguito tutti i 15 step con successo, ma la pubblicazione non e' mai
   avvenuta a causa dell'avaria (vedi sotto).
@@ -243,8 +305,9 @@ il tempo del deploy.
 
 | Rischio | Note |
 |---|---|
-| **L'arte non e' isometrica** | `Block_0` e' una cassa frontale. Su griglia a rombi le facce non combaciano: va ridisegnata. E' lavoro di grafica |
-| Aspetto visivo mai visto | Scala del player, posizione del joystick e dimensione dei blocchi sono valori scelti a tavolino |
+| **L'arte non e' isometrica** | **Confermato guardandolo** l'8 agosto: `Block_0` e' una cassa frontale, su griglia a rombi le facce non combaciano e una fila si legge come quadrati staccati. Va ridisegnata: e' lavoro di grafica |
+| **Il personaggio non si legge** | Visto sullo schermo: 26x64px scuri su fondo scuro, quasi invisibile accanto ai blocchi. Scala o sprite, da decidere |
+| Joystick e dimensione blocchi a tavolino | Visti a 1100x700 e plausibili, ma mai provati sul telefono vero |
 | Le Actions non hanno mai completato | La build passa, la pubblicazione no. Da riverificare a guasto risolto |
 | L'editor risulta troppo spartano | Cresce a richiesta |
 | Ciclo commit -> gioco live ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |

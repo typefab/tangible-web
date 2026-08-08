@@ -54,6 +54,17 @@ export const PLAYER = {
   width: Math.round(GRID.cellSize * 2 * (317 / 788)),
   /** Pixel al secondo. */
   speed: 190,
+  /**
+   * Ingombro per le collisioni: mezzo lato in unita' di cella.
+   *
+   * Non e' in pixel perche' i conti di collisione si fanno in spazio di cella,
+   * dove ogni cella e' un quadrato unitario (vedi `GridCollision`). Sullo
+   * schermo 0.3 diventa un rombo di 38x19 px ai piedi del personaggio, che e'
+   * poco piu' del suo sprite (26px di larghezza).
+   *
+   * Deve restare sotto 0.5, altrimenti non passa in un varco di una cella.
+   */
+  colliderRadius: 0.3,
 } as const;
 
 export const INVENTORY = {

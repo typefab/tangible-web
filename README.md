@@ -94,6 +94,9 @@ portata. Per tornare a giocare basta togliere `?editor=1`.
 - Rottura tenendo premuto 1,5 s, con oscillazione `sin(t * 18) * 10` gradi
 - **Player** con movimento da joystick virtuale (multitouch) o WASD
 - **Portata di piazzamento** 224px: la cella diventa rossa se troppo lontana
+- **Collisioni**: i blocchi fermano il personaggio, che ci scivola lungo invece
+  di incastrarsi. Non ci si puo' murare addosso, e un blocco rotto riapre
+  subito il passaggio
 - **Inventario a 8 slot**: rompere restituisce il blocco, piazzare lo consuma
 - Caricamento della disposizione iniziale da `level.json`
 - Profondita' `col + row`, corretta per l'isometrica

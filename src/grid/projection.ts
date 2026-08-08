@@ -11,6 +11,15 @@ export interface Cell {
 }
 
 /**
+ * Coordinate di cella con la parte frazionaria: la posizione dentro la cella,
+ * non solo quale cella sia. `{ col: 3.5, row: 6.25 }` e' un punto preciso.
+ */
+export interface CellPoint {
+  col: number;
+  row: number;
+}
+
+/**
  * La geometria della griglia, isolata dietro un'unica interfaccia.
  *
  * Tutto il resto del codice (piazzamento, editor, disegno) passa da qui e non
@@ -26,6 +35,23 @@ export interface GridProjection {
 
   /** La cella che contiene quel punto del mondo. */
   worldToCell(x: number, y: number): Cell;
+
+  /**
+   * La versione continua di `worldToCell`: stessa cosa senza arrotondare.
+   *
+   * E' la chiave per le collisioni. In questo spazio ogni cella e' il quadrato
+   * unitario `[col, col+1) x [row, row+1)` qualunque forma abbia sullo
+   * schermo, quindi un rombo isometrico torna a essere un quadrato e il
+   * problema "il personaggio urta il blocco" diventa la solita collisione
+   * rettangolo-contro-griglia. Chi calcola le collisioni lavora qui dentro e
+   * continua a non sapere che forma abbia una cella.
+   *
+   * Invariante: `worldToCell` e' il `floor` di questa, su entrambi gli assi.
+   */
+  toCellSpace(x: number, y: number): CellPoint;
+
+  /** Inversa di `toCellSpace`: da coordinate di cella continue al mondo. */
+  fromCellSpace(col: number, row: number): Point;
 
   /** Ordinamento in profondita': valore piu' alto = disegnato davanti. */
   depthFor(col: number, row: number): number;
@@ -46,6 +72,15 @@ export interface GridProjection {
 }
 
 /**
+ * `worldToCell` e' sempre il `floor` di `toCellSpace`. Scriverlo una volta
+ * sola evita che le due funzioni si allontanino: era gia' successo che
+ * l'inversa isometrica arrotondasse su un riferimento sbagliato.
+ */
+function floorCell(p: CellPoint): Cell {
+  return { col: Math.floor(p.col), row: Math.floor(p.row) };
+}
+
+/**
  * Griglia ortogonale classica: celle quadrate allineate agli assi.
  * E' quella usata dal progetto GDevelop, con offset (16,16) sul terreno.
  */
@@ -59,11 +94,22 @@ const orthogonal: GridProjection = {
     };
   },
 
-  worldToCell(x, y) {
+  toCellSpace(x, y) {
     return {
-      col: Math.floor((x - GRID.offsetX) / GRID.cellSize),
-      row: Math.floor((y - GRID.offsetY) / GRID.cellSize),
+      col: (x - GRID.offsetX) / GRID.cellSize,
+      row: (y - GRID.offsetY) / GRID.cellSize,
     };
+  },
+
+  fromCellSpace(col, row) {
+    return {
+      x: GRID.offsetX + col * GRID.cellSize,
+      y: GRID.offsetY + row * GRID.cellSize,
+    };
+  },
+
+  worldToCell(x, y) {
+    return floorCell(this.toCellSpace(x, y));
   },
 
   // Piu' in basso = davanti.
@@ -112,20 +158,31 @@ const isometric: GridProjection = {
    *
    * Si normalizza rispetto al vertice SUPERIORE della cella (0,0), non al suo
    * centro, e si divide per il lato intero del tile (non per la meta'): cosi'
-   * la coppia (u,v) vive in uno spazio dove ogni rombo e' un quadrato unitario
-   * e `floor` taglia esattamente sui bordi del rombo.
+   * la coppia (col,row) vive in uno spazio dove ogni rombo e' un quadrato
+   * unitario e `floor` taglia esattamente sui bordi del rombo.
    *
    * Usando il centro come riferimento il round-trip sui centri torna lo stesso,
    * ma i punti intorno finiscono nella cella sbagliata: e' un errore che si
    * vede solo campionando l'area, non i centri.
    */
-  worldToCell(x, y) {
+  toCellSpace(x, y) {
     const dx = (x - ISO.originX) / ISO.tileWidth;
     const dy = (y - ISO.originY) / ISO.tileHeight;
     return {
-      col: Math.floor(dy + dx),
-      row: Math.floor(dy - dx),
+      col: dy + dx,
+      row: dy - dx,
     };
+  },
+
+  fromCellSpace(col, row) {
+    return {
+      x: ISO.originX + (col - row) * (ISO.tileWidth / 2),
+      y: ISO.originY + (col + row) * (ISO.tileHeight / 2),
+    };
+  },
+
+  worldToCell(x, y) {
+    return floorCell(this.toCellSpace(x, y));
   },
 
   // In isometrica la profondita' cresce lungo entrambi gli assi: chi ha
