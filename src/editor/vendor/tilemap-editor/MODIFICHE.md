@@ -56,7 +56,9 @@ funzionalita':
 - **selezione multipla di tile** dal tileset (`getSelectedTile`, riga 564) —
   utile se un giorno vorremo pennelli piu' larghi di una cella
 - **tile animati** (`animatedTiles`) — se i blocchi dovranno avere frame
-- **layer** — se serviranno blocchi impilati
+- ~~**layer**~~ — fatti, e senza guardare qui: i tre layer fissi di questo
+  editor sono piani di disegno, mentre i nostri hanno una quota e servono a
+  impilare blocchi su griglia isometrica. Il problema non era lo stesso
 - **import da Tiled** (`importer-tiled.js`) — se adotteremo quel formato
 
 ## Quando cancellarlo

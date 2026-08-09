@@ -1,15 +1,51 @@
 {
-  "_comment": "Disposizione iniziale della scena. Questo file lo produci TU: a mano, o esportandolo da un editor di tilemap nel browser (es. spritefusion.com). Io non lo tocco.",
-  "blocks": [
-    { "col": 2, "row": 6, "type": "block_0" },
-    { "col": 3, "row": 6, "type": "block_0" },
-    { "col": 4, "row": 6, "type": "block_0" },
-    { "col": 5, "row": 6, "type": "block_0" },
-    { "col": 6, "row": 6, "type": "block_0" },
-    { "col": 4, "row": 5, "type": "block_1" },
-    { "col": 5, "row": 5, "type": "block_1" },
-    { "col": 9, "row": 8, "type": "block_0" },
-    { "col": 10, "row": 8, "type": "block_0" },
-    { "col": 10, "row": 7, "type": "block_1" }
+  "levels": [
+    {
+      "name": "Livello 1",
+      "layers": [
+        {
+          "name": "Terreno",
+          "elevation": 0,
+          "visible": true,
+          "blocks": [
+            { "col": 4, "row": 5, "type": "stack" },
+            { "col": 5, "row": 5, "type": "stack" },
+            { "col": 2, "row": 6, "type": "basic" },
+            { "col": 3, "row": 6, "type": "basic" },
+            { "col": 4, "row": 6, "type": "basic" },
+            { "col": 5, "row": 6, "type": "basic" },
+            { "col": 6, "row": 6, "type": "basic" },
+            { "col": 10, "row": 7, "type": "stack" },
+            { "col": 9, "row": 8, "type": "basic" },
+            { "col": 10, "row": 8, "type": "basic" }
+          ]
+        },
+        {
+          "name": "Rialzo",
+          "elevation": 1,
+          "visible": true,
+          "blocks": [
+            { "col": 4, "row": 6, "type": "stack" },
+            { "col": 5, "row": 6, "type": "stack" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Livello 2",
+      "layers": [
+        {
+          "name": "Terreno",
+          "elevation": 0,
+          "visible": true,
+          "blocks": [
+            { "col": 8, "row": 8, "type": "basic" },
+            { "col": 9, "row": 8, "type": "basic" },
+            { "col": 8, "row": 9, "type": "basic" },
+            { "col": 9, "row": 9, "type": "basic" }
+          ]
+        }
+      ]
+    }
   ]
 }

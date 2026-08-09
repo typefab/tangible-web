@@ -1,26 +1,27 @@
 import Phaser from 'phaser';
-import { GRID, ISO, TIMING, BLOCKS, Z, RANGES, PLAYER, JOYSTICK, type BlockType } from '../config';
+import { GRID, ISO, TIMING, Z, RANGES, INVENTORY } from '../config';
+import { BLOCKS, CHARACTERS, UI, blockLabel } from '../assets/catalog';
 import { projection } from '../grid/projection';
 import { GridPlacement } from '../mechanics/GridPlacement';
+import { normalizeProject, pickLevel, type SerializedProject } from '../level/project';
 import { Player } from '../mechanics/Player';
 import { VirtualJoystick } from '../mechanics/VirtualJoystick';
 import { Inventory } from '../mechanics/Inventory';
 import { InventoryBar } from '../ui/InventoryBar';
 import { LevelEditor } from '../editor/LevelEditor';
 
-interface LevelData {
-  blocks: { col: number; row: number; type: BlockType }[];
-}
+const PARAMS = new URLSearchParams(location.search);
 
 /** Modalita' editor: si attiva con ?editor=1 nell'URL. */
-const EDITOR_MODE = new URLSearchParams(location.search).has('editor');
+const EDITOR_MODE = PARAMS.has('editor');
 
 export class GameScene extends Phaser.Scene {
   private placement!: GridPlacement;
+  /** Tutti i livelli del file: il gioco ne monta uno, l'editor li apre tutti. */
+  private project!: SerializedProject;
   /** Le celle sono rombi, quindi l'evidenziazione e' un poligono, non un rettangolo. */
   private hitbox!: Phaser.GameObjects.Graphics;
   private gridLines!: Phaser.GameObjects.Graphics;
-  private hoverCenter = new Phaser.Math.Vector2();
   private breakBar!: Phaser.GameObjects.Rectangle;
   private hud!: Phaser.GameObjects.Text;
   private editor?: LevelEditor;
@@ -36,12 +37,16 @@ export class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
+  /**
+   * Nessun percorso scritto a mano: il catalogo e' generato da Vite dal
+   * contenuto di `src/assets/`, e la chiave della texture e' il nome del file.
+   * Un PNG nuovo in `src/assets/blocks/` e' caricato e piazzabile senza che
+   * questa funzione cambi.
+   */
   preload(): void {
-    this.load.image('block_normal', 'assets/block_normal.png');
-    this.load.image('block_stack', 'assets/block_stack.png');
-    this.load.image(PLAYER.texture, 'assets/Gemini_Generated_Image_ic56toic56toic56-removebg-preview.png');
-    this.load.image(JOYSTICK.borderTexture, 'assets/Transparent dark joystick border2.png');
-    this.load.image(JOYSTICK.thumbTexture, 'assets/Transparent dark joystick thumb2.png');
+    for (const asset of [...BLOCKS, ...CHARACTERS, ...UI]) {
+      this.load.image(asset.id, asset.url);
+    }
     this.load.json('level', 'level.json');
   }
 
@@ -70,15 +75,16 @@ export class GameScene extends Phaser.Scene {
     if (EDITOR_MODE) {
       // In editor niente personaggio: si guarda la scena dall'alto e si
       // costruisce ovunque, senza il vincolo di portata.
-      this.editor = new LevelEditor(this, this.placement);
+      this.editor = new LevelEditor(this, this.placement, this.project);
     } else {
       this.player = new Player(this, this.scale.width / 2, this.scale.height / 2);
       this.joystick = new VirtualJoystick(this);
 
       this.inventory = new Inventory();
-      // Scorta di partenza, cosi' si puo' costruire subito.
-      this.inventory.add('block_0', 20);
-      this.inventory.add('block_1', 5);
+      // Scorta di partenza, cosi' si puo' costruire subito. Presa dal catalogo
+      // e non da un elenco cablato: un blocco caricato oggi e' in mano al
+      // giocatore alla prossima build, senza toccare questa riga.
+      for (const block of BLOCKS.slice(0, INVENTORY.slots)) this.inventory.add(block.id, 20);
       this.inventoryBar = new InventoryBar(this, this.inventory);
 
       // Il joystick deve stare sopra la barra: su telefono si sovrapporrebbero.
@@ -156,22 +162,33 @@ export class GameScene extends Phaser.Scene {
     return this.gridLines.visible;
   }
 
-  /** Evidenzia il rombo della cella indicata. */
-  private highlightCell(col: number, row: number, color: number): void {
+  /**
+   * Evidenzia il rombo della cella indicata.
+   *
+   * `yOffset` alza il contorno all'altezza del layer su cui si sta costruendo:
+   * senza, con un layer elevato il cursore resterebbe a terra e si costruirebbe
+   * alla cieca.
+   */
+  private highlightCell(col: number, row: number, color: number, yOffset = 0): void {
     this.hitbox.clear();
     this.hitbox.lineStyle(2, color, 1);
-    this.hitbox.strokePoints(projection.cellOutline(col, row), true);
+    const outline = projection.cellOutline(col, row).map((p) => ({ x: p.x, y: p.y + yOffset }));
+    this.hitbox.strokePoints(outline, true);
     this.hitbox.setVisible(true);
   }
 
-  /** Carica la disposizione iniziale da level.json. */
+  /**
+   * Carica il progetto da `level.json` e monta il livello richiesto.
+   *
+   * Il file contiene tutti i livelli; `?level=` sceglie quale giocare, per
+   * nome o per numero. La normalizzazione accetta anche i formati vecchi, e la
+   * validazione dei tipi di blocco sta dentro `spawn()`: gli id esistono solo
+   * alla build, quindi un file che nomina un blocco cancellato va scartato a
+   * runtime, non dal compilatore.
+   */
   private loadLevel(): void {
-    const level = this.cache.json.get('level') as LevelData | undefined;
-    if (!level?.blocks) return;
-
-    for (const b of level.blocks) {
-      if (b.type in BLOCKS) this.placement.spawn(b.col, b.row, b.type);
-    }
+    this.project = normalizeProject(this.cache.json.get('level'));
+    this.placement.loadLayers(pickLevel(this.project, PARAMS.get('level')).layers);
   }
 
   private bindInput(): void {
@@ -180,23 +197,29 @@ export class GameScene extends Phaser.Scene {
       if (this.joystick?.owns(p)) return;
 
       this.pointerHeld = true;
-      const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
+      const { col, row } = this.cellUnder(p);
       if (!this.inRange(col, row)) return;
 
-      // Cella occupata -> inizia a rompere. Cella vuota -> piazza subito.
-      if (this.placement.isOccupied(col, row)) {
+      // Cella occupata -> inizia a rompere il blocco piu' in alto.
+      // Cella vuota -> piazza subito.
+      if (this.placement.topBlockAt(col, row)) {
         this.placement.beginBreak(col, row);
         return;
       }
 
+      // In gioco non esiste un "layer attivo": il blocco va dove poggerebbe,
+      // cioe' sul primo piano libero della pila.
+      const layer = this.placement.nextStackLayer(col, row);
+      if (layer === undefined) return;
+
       // Si controlla prima se il piazzamento e' possibile: altrimenti il
       // blocco verrebbe scalato dall'inventario e perso.
-      if (!this.placement.canPlace(col, row)) return;
+      if (!this.placement.canPlace(col, row, layer)) return;
 
       const type = this.inventory?.consumeSelected();
       if (!type) return;
 
-      this.placement.place(col, row, type);
+      this.placement.place(col, row, type, layer);
       this.inventoryBar?.refresh();
       this.refreshHud();
     });
@@ -208,10 +231,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
-      const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
+      const { col, row } = this.cellUnder(p);
 
       // Se il dito scivola su un'altra cella, la rottura riparte da capo.
-      if (this.pointerHeld && this.placement.isOccupied(col, row)) {
+      if (this.pointerHeld && this.placement.topBlockAt(col, row)) {
         this.placement.beginBreak(col, row);
       } else if (this.pointerHeld) {
         this.placement.cancelBreak();
@@ -221,27 +244,45 @@ export class GameScene extends Phaser.Scene {
     // La selezione degli slot (tasti 1..8) e' gestita da InventoryBar.
   }
 
+  /** Di quanti pixel e' alzato il piano su cui si sta lavorando. */
+  get activeElevationY(): number {
+    const layer = this.placement.layers[this.placement.activeLayer];
+    return projection.elevationOffsetY(layer?.elevation ?? 0);
+  }
+
+  /**
+   * La cella sotto il puntatore, letta **sul piano attivo**.
+   *
+   * Su un layer alzato la cella che si vede sotto il dito non e' quella che sta
+   * a terra in quel punto dello schermo: va tolta l'alzata prima di invertire
+   * la proiezione. In gioco il piano attivo e' il terreno, quindi l'alzata e'
+   * zero e questa e' la conversione di sempre.
+   */
+  cellUnder(p: Phaser.Input.Pointer): { col: number; row: number } {
+    return GridPlacement.worldToCell(p.worldX, p.worldY - this.activeElevationY);
+  }
+
   /** Evidenzia la cella sotto il puntatore. Attiva in entrambe le modalita'. */
   private bindCellPreview(): void {
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
       if (this.joystick?.owns(p)) return;
 
-      const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
-      const { x, y } = GridPlacement.cellToWorld(col, row);
-      this.hoverCenter.set(x, y);
+      const { col, row } = this.cellUnder(p);
       // Giallo se ci puoi costruire, rosso se sei troppo lontano.
-      this.highlightCell(col, row, this.inRange(col, row) ? 0xffd166 : 0xff5c5c);
+      this.highlightCell(col, row, this.inRange(col, row) ? 0xffd166 : 0xff5c5c, this.activeElevationY);
     });
   }
 
   private refreshHud(): void {
     if (this.editor) {
-      this.hud.setText(`MODALITA EDITOR\nesci togliendo ?editor=1 dall URL`);
+      // In editor l'HUD sparisce: su telefono finiva sotto il pannello dei
+      // layer, e la toolbar dice gia' tutto quello che diceva lui.
+      this.hud.setVisible(false);
       return;
     }
 
     const type = this.inventory?.selectedType;
-    const label = type ? BLOCKS[type].label : 'vuoto';
+    const label = type ? blockLabel(type) : 'vuoto';
     this.hud.setText(
       [
         `Slot ${(this.inventory?.selected ?? 0) + 1}: ${label}  (tasti 1-8)`,
@@ -257,10 +298,13 @@ export class GameScene extends Phaser.Scene {
     this.placement.update();
 
     const progress = this.placement.breakProgress;
-    if (progress > 0) {
+    // La barra segue il blocco e non la cella: su un layer alzato i due punti
+    // non coincidono piu'.
+    const center = this.placement.breakTargetCenter;
+    if (progress > 0 && center) {
       this.breakBar
         .setVisible(true)
-        .setPosition(this.hoverCenter.x - ISO.tileWidth / 2, this.hoverCenter.y + ISO.tileHeight / 2 + 6)
+        .setPosition(center.x - ISO.tileWidth / 2, center.y + ISO.tileHeight / 2 + 6)
         .setDisplaySize(ISO.tileWidth * progress, 4);
     } else {
       this.breakBar.setVisible(false);

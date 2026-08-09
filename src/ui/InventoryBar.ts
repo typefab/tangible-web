@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { INVENTORY, BLOCKS, Z } from '../config';
+import { INVENTORY, Z } from '../config';
+import { DEFAULT_BLOCK_ID } from '../assets/catalog';
 import type { Inventory } from '../mechanics/Inventory';
 
 interface SlotView {
@@ -53,7 +54,10 @@ export class InventoryBar {
         ? this.scene.add.image(0, 0, INVENTORY.slotTexture)
         : this.scene.add.rectangle(0, 0, 1, 1, 0x24242e, 0.85).setStrokeStyle(2, 0x3a3a48);
 
-      const icon = this.scene.add.image(0, 0, BLOCKS.block_0.texture).setVisible(false);
+      // Una texture qualsiasi come segnaposto: l'icona parte nascosta e prende
+      // quella giusta al primo refresh. Il tipo di blocco e' anche la chiave
+      // della sua texture, quindi non serve nessuna tabella di conversione.
+      const icon = this.scene.add.image(0, 0, DEFAULT_BLOCK_ID).setVisible(false);
 
       const count = this.scene.add
         .text(0, 0, '', { fontFamily: 'monospace', fontSize: '12px', color: '#e8e8ef' })
@@ -118,7 +122,7 @@ export class InventoryBar {
       }
 
       if (slot.type) {
-        view.icon.setTexture(BLOCKS[slot.type].texture).setVisible(true);
+        view.icon.setTexture(slot.type).setVisible(true);
         view.count.setText(slot.count > 1 ? String(slot.count) : '');
       } else {
         view.icon.setVisible(false);
