@@ -3,8 +3,11 @@ import { GRID, Z, type BlockType } from '../config';
 import { projection } from '../grid/projection';
 import type { GridPlacement } from '../mechanics/GridPlacement';
 
-/** Un blocco selezionato, staccato dallo sprite: sopravvive allo spostamento. */
-interface Picked {
+/**
+ * Un blocco selezionato, staccato dallo sprite: sopravvive allo spostamento,
+ * al cambio di livello e agli appunti.
+ */
+export interface Picked {
   col: number;
   row: number;
   type: BlockType;
@@ -54,6 +57,23 @@ export class SelectionTool {
 
   get isDragging(): boolean {
     return this.mode !== 'idle';
+  }
+
+  /** I blocchi selezionati, staccati dalla scena. Copia: il chiamante li tiene. */
+  snapshot(): Picked[] {
+    return this.selected.map((b) => ({ ...b }));
+  }
+
+  /**
+   * Rende selezionati dei blocchi gia' piazzati, sul layer attivo.
+   * Serve dopo un incolla: quello che arriva resta in mano, pronto da spostare.
+   */
+  adopt(blocks: Picked[]): void {
+    this.layerIndex = this.placement.activeLayer;
+    this.selected = blocks.map((b) => ({ ...b }));
+    this.mode = 'idle';
+    this.delta = { col: 0, row: 0 };
+    this.redraw();
   }
 
   /**

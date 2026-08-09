@@ -1,7 +1,7 @@
 # Piano di lavoro — Tangible Cushion
 
 Documento di riferimento su scelte di architettura, stato e prossimi passi.
-Ultimo aggiornamento: 8 agosto 2026 (seconda revisione).
+Ultimo aggiornamento: 9 agosto 2026.
 
 ---
 
@@ -240,6 +240,33 @@ Lo spostamento toglie tutti i blocchi di partenza **prima** di ripiazzarli:
 facendolo uno alla volta, spostare una fila di uno a destra cancellerebbe il
 vicino appena scritto.
 
+Gli **appunti** tengono i blocchi in coordinate relative al loro angolo, non
+assolute: solo cosi' un incolla puo' atterrare su un'altra cella, un altro layer
+o un'altra scheda mantenendo la forma. Vivono in memoria e non nel progetto
+salvato — sopravvivono al cambio di scheda, che e' il caso che conta, ma non a
+una ricarica.
+
+L'incolla atterra **sotto il puntatore** e non dove stava l'originale: incollare
+sopra se stesso sembra non aver fatto niente. Quello che arriva resta
+selezionato, pronto da trascinare.
+
+### Riempimento: rettangolo, non contiguita'
+
+Il secchiello era un riempimento per contiguita', quello classico. **E' stato
+cambiato dopo averlo usato**: su una griglia quasi vuota il secchiello riempie
+tutto quello che tocca, il che e' spettacolare e quasi mai quello che si voleva.
+Ora si trascina un rettangolo come per la selezione, e si riempie quello.
+
+Il criterio di appartenenza e' lo stesso della selezione — il centro della cella
+dentro il rettangolo di schermo — quindi in isometrica si riempie il rombo che
+si vede, non un blocco di righe e colonne. L'anteprima colora le celle mentre
+trascini, perche' il solo rettangolo non direbbe quali rombi prende.
+
+Implementazione ingenua di proposito: si passano in rassegna tutte le 625 celle
+della griglia disegnata invece di invertire la proiezione sugli angoli. A queste
+dimensioni non si misura, ed evita un secondo pezzo di geometria da tenere
+d'accordo col primo.
+
 ### I test guidano il gioco vero
 
 `test/` con Playwright, e **nessun unit test**. Non e' pigrizia: le parti
@@ -372,13 +399,19 @@ compositing GPU della cattura headless, non un difetto della pagina.
 
 ### Le Actions girano, e l'APK esiste — 8 agosto 2026
 
-Cadono altri due punti aperti dai tempi dell'avaria.
+Cadono gli ultimi punti aperti dai tempi dell'avaria.
+
+**Rettifica.** Questo documento ha continuato a dire *"le Actions non hanno mai
+completato una run"* anche dopo che due deploy erano andati a buon fine (run #4
+e #5, del 7 agosto). L'affermazione risaliva all'avaria del 6 e nessuno l'aveva
+riletta. Vale come promemoria: una riga su cosa "non e' mai successo" scade in
+fretta, e va riverificata prima di ripeterla.
 
 | Workflow | Esito | Durata |
 |---|---|---|
 | `test.yml` | verde, 39 test su 39 | 1m41s |
 | `build-apk.yml` | verde, **APK da 6,5 MB** negli Artifacts | 1m59s |
-| `deploy-web.yml` | ancora mai completato | — |
+| `deploy-web.yml` | verde, sito pubblicato | 35s |
 
 L'APK e' il primo mai prodotto dal progetto. Si scarica dagli *Artifacts* della
 run e scade dopo 90 giorni; sul telefono va autorizzata l'installazione da
@@ -389,10 +422,7 @@ Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
 
 ### Non verificato
 
-- **`deploy-web.yml` non ha mai completato una run.** Gira solo su `main`,
-  quindi le tre action di Pages restano da provare al primo merge. E' anche
-  l'unico workflow che pubblica qualcosa: lanciarlo da un branch avrebbe messo
-  online il lavoro in corso.
+- **Il tocco su un telefono vero** resta il buco principale (vedi sotto).
 - **Il tocco non e' mai stato provato su un telefono vero**, solo su un viewport
   da 390x780 con il mouse — e i test toccano lo schermo via protocollo, che non
   e' la stessa cosa di un dito.
@@ -451,12 +481,12 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 4. ~~Salvataggio locale e apertura di un file~~ — **fatto**
 5. ~~Pinch-zoom~~ — **fatto**, insieme al pan a due dita
 6. ~~Test automatici~~ — **fatto**, 39 test in CI
-7. **Copia e incolla della selezione**, anche fra schede: la selezione c'e' ma
-   si puo' solo spostare o cancellare
+7. ~~Copia e incolla della selezione~~ — **fatto**, anche fra schede
 8. ~~Produrre il primo APK~~ — **fatto**, 6,5 MB negli Artifacts. Resta da
-   **installarlo su un telefono vero**, e da verificare il deploy web al primo
-   merge su `main`
-9. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+   **installarlo su un telefono vero**
+9. **Provare l'editor con un dito vero.** E' il buco piu' grande rimasto: gesti,
+   selezione e dimensione dei pulsanti sono tarati su un viewport, non su una mano
+10. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
 
@@ -467,7 +497,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | **L'arte non e' isometrica** | `basic.png` e' una cassa frontale. Su griglia a rombi le facce non combaciano, e con i layer si vede di piu': impilando due blocchi le facce laterali non si allineano. E' lavoro di grafica |
 | **Il player e' minuscolo** | Visto a schermo: 26x64px su celle da 64x32, e' una macchiolina. La proporzione `317/788` dello sprite sorgente e' rispettata, ma l'altezza scelta (2 celle) e' troppo poca. Da ritarare guardando, ora che si puo' |
 | Quota e altezza dello sprite scollegate | Un passo di quota vale `tileHeight` (32px), ma gli sprite dei blocchi sono piu' alti della cella. Su arte isometrica vera i due numeri devono coincidere, altrimenti restano fessure o sovrapposizioni |
-| `deploy-web.yml` mai completato | Gli altri due workflow sono verdi; questo gira solo su `main` e resta da provare al primo merge |
+| Il sito e' pubblico, e con lui gli sprite | Un gioco web manda le immagini al browser che lo gioca: "sprite privati" e "link pubblico" non possono essere veri insieme. Se serve riservatezza, l'unica leva e' chi puo' aprire la pagina |
 | 51 PNG inutilizzati nel deploy | Archivio in `public/assets/`. Da togliere quando Fabrizio conferma |
 | **Salva non porta il lavoro nel gioco** | Salva scrive in `localStorage`, solo Scarica + upload su GitHub aggiorna il gioco. La UI lo dice in tre punti, ma resta il modo piu' facile di perdere una serata |
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
