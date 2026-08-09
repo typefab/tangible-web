@@ -67,6 +67,26 @@ export const PLAYER = {
   colliderRadius: 0.3,
 } as const;
 
+export const CAMERA = {
+  /**
+   * Quanto la camera recupera il ritardo sul personaggio a ogni frame.
+   *
+   * 1 la incolla addosso (ogni passo scuote lo schermo), valori bassi la
+   * fanno arrivare in ritardo. 0.12 e' il compromesso fra "non si stacca" e
+   * "non da' la nausea".
+   */
+  lerp: 0.12,
+  /**
+   * Riquadro morto al centro: finche' il personaggio ci resta dentro, la
+   * camera non si muove affatto. Senza, ogni singolo passo produce uno
+   * scorrimento e su pixel art si vede tremolare tutta la scena.
+   */
+  deadZoneWidth: 200,
+  deadZoneHeight: 140,
+  /** Celle di respiro oltre il bordo della griglia, per non incollare la vista al bordo. */
+  boundsPaddingCells: 1,
+} as const;
+
 export const INVENTORY = {
   /** 8 slot, come nel progetto GDevelop (SlotIndex 0-7). */
   slots: 8,

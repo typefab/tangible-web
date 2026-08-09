@@ -97,6 +97,9 @@ portata. Per tornare a giocare basta togliere `?editor=1`.
 - **Collisioni**: i blocchi fermano il personaggio, che ci scivola lungo invece
   di incastrarsi. Non ci si puo' murare addosso, e un blocco rotto riapre
   subito il passaggio
+- **Camera che insegue** il personaggio, con riquadro morto e limiti sul bordo
+  della griglia: il livello puo' essere piu' grande dello schermo. In editor
+  la vista resta quella che guidi tu
 - **Inventario a 8 slot**: rompere restituisce il blocco, piazzare lo consuma
 - Caricamento della disposizione iniziale da `level.json`
 - Profondita' `col + row`, corretta per l'isometrica

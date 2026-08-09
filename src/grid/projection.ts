@@ -225,6 +225,40 @@ const isometric: GridProjection = {
  */
 export const projection: GridProjection = isometric;
 
+/**
+ * Il riquadro di mondo che contiene tutte le celle dell'intervallo.
+ *
+ * Serve alla camera, che non deve mostrare il vuoto oltre la griglia. Passa
+ * dai perimetri veri (`cellOutline`) invece di ricavarli dai centri, cosi'
+ * vale per qualsiasi proiezione: chi chiama non deve sapere che in isometrica
+ * il rombo sporge di mezza cella oltre il proprio centro.
+ */
+export function gridBounds(
+  fromCol: number,
+  toCol: number,
+  fromRow: number,
+  toRow: number,
+  proj: GridProjection = projection,
+): { x: number; y: number; width: number; height: number } {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (let col = fromCol; col <= toCol; col++) {
+    for (let row = fromRow; row <= toRow; row++) {
+      for (const p of proj.cellOutline(col, row)) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+  }
+
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
 // `orthogonal` resta disponibile come alternativa: e' la geometria del
 // progetto GDevelop originale.
 export { orthogonal, isometric };

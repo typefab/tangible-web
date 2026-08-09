@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { GRID, ISO, TIMING, BLOCKS, Z, RANGES, PLAYER, JOYSTICK, type BlockType } from '../config';
-import { projection } from '../grid/projection';
+import { GRID, ISO, TIMING, BLOCKS, Z, RANGES, PLAYER, JOYSTICK, CAMERA, type BlockType } from '../config';
+import { projection, gridBounds } from '../grid/projection';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import { GridCollision } from '../mechanics/GridCollision';
 import { Player } from '../mechanics/Player';
@@ -74,15 +74,18 @@ export class GameScene extends Phaser.Scene {
       // costruisce ovunque, senza il vincolo di portata.
       this.editor = new LevelEditor(this, this.placement);
     } else {
-      // I blocchi diventano invalicabili. Il predicato interroga GridPlacement
-      // dal vivo, quindi un blocco piazzato adesso ferma subito, e uno rotto
-      // libera subito il passaggio: nessuna mappa di collisione da tenere
-      // allineata.
+      // I blocchi diventano invalicabili, e con loro il bordo della griglia.
+      // Il predicato interroga GridPlacement dal vivo, quindi un blocco
+      // piazzato adesso ferma subito, e uno rotto libera subito il passaggio:
+      // nessuna mappa di collisione da tenere allineata.
       this.collision = new GridCollision(
-        (col, row) => this.placement.isOccupied(col, row),
+        (col, row) => !GameScene.insideGrid(col, row) || this.placement.isOccupied(col, row),
         PLAYER.colliderRadius,
       );
-      this.player = new Player(this, this.scale.width / 2, this.scale.height / 2, this.collision);
+
+      const spawn = this.spawnPoint();
+      this.player = new Player(this, spawn.x, spawn.y, this.collision);
+      this.setupCamera(this.player.sprite);
       this.joystick = new VirtualJoystick(this);
 
       this.inventory = new Inventory();
@@ -113,6 +116,66 @@ export class GameScene extends Phaser.Scene {
       this.bindInput();
     }
     this.refreshHud();
+  }
+
+  /** True se la cella cade dentro la griglia disegnata. Fuori c'e' solo vuoto. */
+  private static insideGrid(col: number, row: number): boolean {
+    return (
+      col >= GRID.drawFrom && col <= GRID.drawTo && row >= GRID.drawFrom && row <= GRID.drawTo
+    );
+  }
+
+  /**
+   * La camera insegue il personaggio.
+   *
+   * Tre scelte, tutte per lo stesso motivo — che l'inseguimento non si noti:
+   *
+   * - il **riquadro morto** al centro fa si' che camminare avanti e indietro
+   *   di poco non muova affatto la vista;
+   * - il **ritardo** (`lerp`) evita che ogni passo scuota lo schermo;
+   * - `roundPixels` tiene la camera su coordinate intere: su pixel art una
+   *   camera frazionaria fa tremolare i bordi di ogni sprite.
+   *
+   * I limiti impediscono di inquadrare il vuoto oltre la griglia. Non tocca
+   * la modalita' editor, che la camera se la guida da sola (zoom e
+   * trascinamento della vista).
+   */
+  private setupCamera(target: Phaser.GameObjects.Sprite): void {
+    const cam = this.cameras.main;
+    const pad = CAMERA.boundsPaddingCells;
+    const b = gridBounds(
+      GRID.drawFrom - pad,
+      GRID.drawTo + pad,
+      GRID.drawFrom - pad,
+      GRID.drawTo + pad,
+    );
+
+    cam.setBounds(b.x, b.y, b.width, b.height);
+    cam.setDeadzone(CAMERA.deadZoneWidth, CAMERA.deadZoneHeight);
+    cam.startFollow(target, true, CAMERA.lerp, CAMERA.lerp);
+  }
+
+  /**
+   * Dove compare il personaggio.
+   *
+   * Prima era il centro dello schermo, che con la camera ferma coincideva col
+   * centro del mondo. Ora che la camera segue, quel punto dipendeva dalla
+   * dimensione dello schermo: su telefono si compariva in una cella diversa
+   * che su desktop. Si parte invece dal baricentro dei blocchi del livello,
+   * cosi' la prima inquadratura mostra quello che e' stato costruito invece
+   * di un angolo di griglia vuota. Se `findFreeSpot` trova occupato, si
+   * sposta lui.
+   */
+  private spawnPoint(): { x: number; y: number } {
+    const blocks = this.placement.list();
+    if (blocks.length === 0) {
+      const middle = Math.round((GRID.drawFrom + GRID.drawTo) / 2);
+      return GridPlacement.cellToWorld(middle, middle);
+    }
+
+    const col = blocks.reduce((sum, b) => sum + b.col, 0) / blocks.length;
+    const row = blocks.reduce((sum, b) => sum + b.row, 0) / blocks.length;
+    return GridPlacement.cellToWorld(Math.round(col), Math.round(row));
   }
 
   /** True se la cella e' abbastanza vicina al Player per costruirci. */
@@ -192,6 +255,9 @@ export class GameScene extends Phaser.Scene {
       this.pointerHeld = true;
       const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
       if (!this.inRange(col, row)) return;
+      // Fuori dalla griglia il bordo e' invalicabile: un blocco piazzato li'
+      // non si potrebbe piu' ne' raggiungere ne' rompere.
+      if (!GameScene.insideGrid(col, row)) return;
 
       // Cella occupata -> inizia a rompere. Cella vuota -> piazza subito.
       if (this.placement.isOccupied(col, row)) {
@@ -244,8 +310,9 @@ export class GameScene extends Phaser.Scene {
       const { col, row } = GridPlacement.worldToCell(p.worldX, p.worldY);
       const { x, y } = GridPlacement.cellToWorld(col, row);
       this.hoverCenter.set(x, y);
-      // Giallo se ci puoi costruire, rosso se sei troppo lontano.
-      this.highlightCell(col, row, this.inRange(col, row) ? 0xffd166 : 0xff5c5c);
+      // Giallo se ci puoi costruire, rosso se sei troppo lontano o fuori griglia.
+      const buildable = this.inRange(col, row) && (this.editor !== undefined || GameScene.insideGrid(col, row));
+      this.highlightCell(col, row, buildable ? 0xffd166 : 0xff5c5c);
     });
   }
 

@@ -1,7 +1,7 @@
 # Piano di lavoro — Tangible Cushion
 
 Documento di riferimento su scelte di architettura, stato e prossimi passi.
-Ultimo aggiornamento: 8 agosto 2026.
+Ultimo aggiornamento: 9 agosto 2026.
 
 ---
 
@@ -149,6 +149,36 @@ Due conseguenze pratiche:
 La regola "se sei gia' dentro un blocco, passi" e' voluta: senza, chi si
 ritrova un blocco addosso resterebbe murato per sempre.
 
+### La camera che insegue
+
+Tre regolazioni, tutte per lo stesso scopo — che l'inseguimento **non si
+noti**: un riquadro morto al centro (camminare avanti e indietro di poco non
+muove affatto la vista), un ritardo nel recupero (`lerp`, altrimenti ogni
+passo scuote lo schermo) e `roundPixels` (su pixel art una camera a
+coordinate frazionarie fa tremolare i bordi di ogni sprite).
+
+Una camera che insegue tira dietro due conseguenze, senza le quali la cosa
+resta mezza rotta:
+
+1. **Il mondo ha un bordo.** Prima si vedeva sempre e solo la griglia
+   disegnata; ora seguendo il personaggio si inquadrerebbe il vuoto oltre.
+   I limiti della camera si ricavano da `gridBounds()`, che passa dai
+   perimetri veri delle celle e quindi vale per qualsiasi proiezione. E il
+   personaggio non deve poterci uscire: si e' ottenuto **senza codice nuovo**,
+   dichiarando solide le celle fuori griglia nello stesso predicato che
+   gia' risponde per i blocchi.
+2. **La comparsa non puo' piu' essere "il centro dello schermo".** Con la
+   camera ferma quel punto era anche il centro del mondo; ora dipendeva dalla
+   dimensione dello schermo, e su telefono si compariva in una cella diversa
+   che su desktop (verificato: prima (6,15) contro (10,8)). Si parte invece
+   dal baricentro dei blocchi del livello, cosi' la prima inquadratura mostra
+   quello che e' stato costruito.
+
+Nota misurata: la griglia 25x25 in isometrica e' **1728x864 px**, cioe' larga
+e bassa. Su un desktop 1100x700 restano 628px di scorrimento orizzontale ma
+solo 164 verticali, e su telefono 375x812 il verticale e' praticamente nullo.
+Se serve piu' respiro e' `GRID.drawTo`.
+
 ### Costanti
 
 Le costanti di gioco stanno in `src/config.ts`, portate 1:1 dalla tabella di
@@ -167,6 +197,7 @@ oscillazione `sin(t*18)*10` gradi, 8 slot di inventario.
 | Proiezione isometrica | `grid/projection.ts` | ortogonale disponibile come alternativa |
 | Player | `mechanics/Player.ts` | sprite dal progetto GDevelop, origine ai piedi |
 | Collisioni con i blocchi | `mechanics/GridCollision.ts` | conti in spazio di cella, scivolamento sui muri, mai murati |
+| Camera che insegue | `scenes/GameScene.ts` | riquadro morto, ritardo, limiti sulla griglia; non tocca l'editor |
 | Joystick virtuale | `mechanics/VirtualJoystick.ts` | multitouch, sprite `Transparent dark` |
 | Inventario 8 slot | `mechanics/Inventory.ts` | solo stato e regole, testabile senza schermo |
 | Barra inventario | `ui/InventoryBar.ts` | segnaposto se manca lo sprite, si adatta a schermi stretti |
@@ -207,6 +238,21 @@ E 7 prove pilotando il gioco vero in Chromium:
   non ne esce e non entra mai in un blocco
 - muro lungo: non lo attraversa e ci scivola lungo per 280px
 - rotto il muro, la stessa camminata avanza di 10 celle in piu'
+
+Camera — 17 prove nel browser, su desktop 1100x700, telefono 375x812 e editor:
+
+- inseguimento attivo, riquadro morto 200x140
+- comparsa su (5,7), cella libera accanto al baricentro dei blocchi (5.8, 6.3),
+  e **identica sulle due dimensioni di schermo**
+- camminata di 900 frame verso est: `scrollX` da -134 a 244, che e' esattamente
+  il limite della griglia
+- camminata di 900 frame verso sud: arriva al limite verticale (180), perche'
+  la griglia isometrica e' bassa
+- su 1800 frame: **0 frame con la camera fuori dai limiti, 0 col personaggio
+  fuori dall'inquadratura**
+- il bordo della griglia ferma il personaggio in tutte e 8 le direzioni
+- in `?editor=1` nessun inseguimento: la vista spostata a mano resta dov'e'
+- nessun errore in console (resta solo il 404 di `/favicon.ico`, cosmetico)
 
 ### Bug trovati e corretti
 
