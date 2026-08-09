@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { BLOCKS, GRID, type BlockType } from '../config';
+import { GRID, type BlockType } from '../config';
+import { BLOCKS } from '../assets/blocks';
 import { GridPlacement } from '../mechanics/GridPlacement';
 
 /**

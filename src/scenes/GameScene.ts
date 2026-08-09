@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
-import { GRID, ISO, TIMING, BLOCKS, Z, RANGES, PLAYER, JOYSTICK, CAMERA, type BlockType } from '../config';
+import { GRID, ISO, TIMING, Z, RANGES, PLAYER, CAMERA, type BlockType } from '../config';
+import { assets } from '../assets/registry';
+import { BLOCKS, BLOCK_IDS, DEFAULT_BLOCK } from '../assets/blocks';
 import { projection, gridBounds } from '../grid/projection';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import { GridCollision } from '../mechanics/GridCollision';
@@ -39,11 +41,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image('block_normal', 'assets/block_normal.png');
-    this.load.image('block_stack', 'assets/block_stack.png');
-    this.load.image(PLAYER.texture, 'assets/Gemini_Generated_Image_ic56toic56toic56-removebg-preview.png');
-    this.load.image(JOYSTICK.borderTexture, 'assets/Transparent dark joystick border2.png');
-    this.load.image(JOYSTICK.thumbTexture, 'assets/Transparent dark joystick thumb2.png');
+    // Ogni sprite indicizzato, con la sua chiave `categoria/nome`. Aggiungere
+    // un PNG a una cartella di `src/assets/` basta: qui non si tocca niente.
+    // Si caricano tutti (oggi 844 KB): finche' la libreria e' piccola, la
+    // semplicita' vale piu' del risparmio.
+    for (const asset of assets) this.load.image(asset.key, asset.url);
     this.load.json('level', 'level.json');
   }
 
@@ -89,9 +91,10 @@ export class GameScene extends Phaser.Scene {
       this.joystick = new VirtualJoystick(this);
 
       this.inventory = new Inventory();
-      // Scorta di partenza, cosi' si puo' costruire subito.
-      this.inventory.add('block_0', 20);
-      this.inventory.add('block_1', 5);
+      // Scorta di partenza, cosi' si puo' costruire subito. I tipi non sono
+      // piu' scritti a mano: si prendono dalla cartella, in ordine di nome.
+      this.inventory.add(DEFAULT_BLOCK, 20);
+      if (BLOCK_IDS[1]) this.inventory.add(BLOCK_IDS[1], 5);
       this.inventoryBar = new InventoryBar(this, this.inventory);
 
       // Il joystick deve stare sopra la barra: su telefono si sovrapporrebbero.

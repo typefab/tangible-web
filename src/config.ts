@@ -3,7 +3,14 @@
  *
  * Questo file e' la fonte di verita' per i numeri: sono qui, in chiaro,
  * versionati in git. Nel progetto GDevelop erano sparsi dentro il JSON.
+ *
+ * Gli sprite non si dichiarano qui: li indicizza `assets/registry.ts` leggendo
+ * le cartelle, e il catalogo dei blocchi sta in `assets/blocks.ts`. Qui resta
+ * *quale* sprite usare, mai l'elenco di quelli esistenti — cosi' questo file
+ * non dipende da Vite e resta importabile da Node puro, che e' quello che
+ * permette di provare griglia e collisioni senza schermo.
  */
+
 export const GRID = {
   /** Dimensione della cella della griglia di piazzamento. */
   cellSize: 32,
@@ -48,7 +55,8 @@ export const RANGES = {
 } as const;
 
 export const PLAYER = {
-  texture: 'player',
+  /** Chiave nell'indice: `src/assets/characters/warrior.png`. */
+  texture: 'characters/warrior',
   /** Lo sprite sorgente e' 317x788: due celle di altezza, larghezza in proporzione. */
   height: GRID.cellSize * 2,
   width: Math.round(GRID.cellSize * 2 * (317 / 788)),
@@ -93,14 +101,15 @@ export const INVENTORY = {
   /** Lato dello slot a schermo pieno; su telefono viene ridotto in proporzione. */
   slotSize: 96,
   /** Se questa texture esiste viene usata come sfondo dello slot. */
-  slotTexture: 'inventory_slot',
+  slotTexture: 'ui/inventory-slot',
   /** Quanti blocchi entrano in uno slot. */
   stackLimit: 99,
 } as const;
 
 export const JOYSTICK = {
-  borderTexture: 'joystick_border',
-  thumbTexture: 'joystick_thumb',
+  /** Il pack ha 4 stili x 2 tinte: cambiare variante = cambiare queste due righe. */
+  borderTexture: 'ui/joystick/transparent-dark-border',
+  thumbTexture: 'ui/joystick/transparent-dark-thumb',
   /** Raggio entro cui il pollice si muove, in pixel schermo. */
   radius: 56,
   /** Sotto questa frazione del raggio il movimento e' considerato fermo. */
@@ -123,10 +132,12 @@ export const Z = {
   playerDepthBias: 0.5,
 } as const;
 
-/** Tipi di blocco. Aggiungerne uno = una riga qui. */
-export const BLOCKS = {
-  block_0: { texture: 'block_normal', label: 'Basic' },
-  block_1: { texture: 'block_stack', label: 'Stack' },
-} as const;
-
-export type BlockType = keyof typeof BLOCKS;
+/**
+ * L'id di un tipo di blocco.
+ *
+ * E' `string` e non piu' un'unione chiusa, perche' l'elenco vive nella
+ * cartella `assets/blocks/` e non nel codice: il compilatore non puo'
+ * conoscerlo. In cambio va convalidato quando arriva da fuori, ed e' quello
+ * che fa gia' il caricamento di `level.json`.
+ */
+export type BlockType = string;

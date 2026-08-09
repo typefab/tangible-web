@@ -31,8 +31,8 @@ sincronizzare.
                                      └── APK ────> lo installi sul telefono
 ```
 
-Nessuno dei due tocca il lavoro dell'altro: tu i file in `public/`, io i file
-in `src/`.
+Nessuno dei due tocca il lavoro dell'altro: tu gli sprite in `src/assets/` e la
+disposizione in `public/level.json`, io il codice — tutto il resto di `src/`.
 
 ## Come ci giochi
 
@@ -73,14 +73,21 @@ portata. Per tornare a giocare basta togliere `?editor=1`.
 
 | File | Cosa contiene |
 |---|---|
-| `public/assets/*.png` | Gli sprite. Trascinali nella UI web di GitHub. |
-| `public/level.json` | La disposizione dei blocchi. A mano, o esportato da un editor di tilemap. |
+| `src/assets/**/*.png` | Gli sprite, in cartelle per categoria. Trascinali nella UI web di GitHub. |
+| `public/level.json` | La disposizione dei blocchi. A mano, o esportato dall'editor. |
+
+**Due regole sugli sprite: la cartella decide la categoria, il nome del file
+decide l'id.** Lasci cadere `dirt.png` in `src/assets/blocks/` e fai commit:
+`dirt` diventa un blocco vero, in palette e piazzabile, senza che nessuno
+scriva codice. Le regole per esteso stanno in
+[`src/assets/README.md`](src/assets/README.md).
 
 ## Cosa tocco io
 
 | File | Cosa contiene |
 |---|---|
 | `src/config.ts` | Le costanti di gioco, portate 1:1 dalla tabella di `CLAUDE.md`. |
+| `src/assets/registry.ts` | L'indice degli sprite, che si costruisce da solo dalle cartelle. |
 | `src/grid/` | La geometria della griglia, isolata dietro un'interfaccia. |
 | `src/mechanics/` | Le meccaniche. Una classe per meccanica, autonoma e testabile. |
 | `src/ui/` | Barra dell'inventario e altri elementi di interfaccia. |
@@ -101,6 +108,8 @@ portata. Per tornare a giocare basta togliere `?editor=1`.
   della griglia: il livello puo' essere piu' grande dello schermo. In editor
   la vista resta quella che guidi tu
 - **Inventario a 8 slot**: rompere restituisce il blocco, piazzare lo consuma
+- **Sprite organizzati per cartella**, con l'indice generato in build: aggiungere
+  un blocco e' aggiungere un PNG
 - Caricamento della disposizione iniziale da `level.json`
 - Profondita' `col + row`, corretta per l'isometrica
 

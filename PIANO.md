@@ -198,6 +198,7 @@ oscillazione `sin(t*18)*10` gradi, 8 slot di inventario.
 | Player | `mechanics/Player.ts` | sprite dal progetto GDevelop, origine ai piedi |
 | Collisioni con i blocchi | `mechanics/GridCollision.ts` | conti in spazio di cella, scivolamento sui muri, mai murati |
 | Camera che insegue | `scenes/GameScene.ts` | riquadro morto, ritardo, limiti sulla griglia; non tocca l'editor |
+| Indice degli sprite | `assets/registry.ts` | cartella = categoria, nome file = id; un PNG basta |
 | Joystick virtuale | `mechanics/VirtualJoystick.ts` | multitouch, sprite `Transparent dark` |
 | Inventario 8 slot | `mechanics/Inventory.ts` | solo stato e regole, testabile senza schermo |
 | Barra inventario | `ui/InventoryBar.ts` | segnaposto se manca lo sprite, si adatta a schermi stretti |
@@ -253,6 +254,20 @@ Camera — 17 prove nel browser, su desktop 1100x700, telefono 375x812 e editor:
 - il bordo della griglia ferma il personaggio in tutte e 8 le direzioni
 - in `?editor=1` nessun inseguimento: la vista spostata a mano resta dov'e'
 - nessun errore in console (resta solo il 404 di `/favicon.ico`, cosmetico)
+
+Indice degli sprite — 15 prove nel browser, in sviluppo **e sulla build di
+produzione** (dove Vite incorpora i file piccoli come data URI e rinomina gli
+altri con l'impronta: e' un comportamento diverso, e va provato a parte):
+
+- 28 sprite indicizzati, tutti caricati, nessuna texture rotta
+- chiavi tutte nella forma `categoria/nome`; niente da `_da-classificare/`
+- `level.json` migrato carica i suoi 10 blocchi coi nuovi id
+- `orange.png`, aggiunto alla cartella e basta, **e' diventato un blocco vero**:
+  compare in palette con etichetta "Orange" e nell'inventario di partenza
+- un tipo di blocco inesistente viene saltato con un avviso, gli altri passano:
+  nessun crash se rinomini un PNG citato da un livello gia' scritto
+- in produzione: nessun errore, nessuna risorsa mancante, e lo screenshot
+  mostra una scena vera (769 colori, il piu' diffuso copre l'83%)
 
 ### Bug trovati e corretti
 
@@ -311,39 +326,59 @@ primo push.
 
 ---
 
-## 6. Struttura dei file, prossima
+## 6. Struttura degli sprite
 
-Oggi `public/assets/` e' un mucchio piatto di 54 file con nomi come
-`NewSprite10.png`. Struttura proposta:
+Fatta il 9 agosto 2026. Prima `public/assets/` era un mucchio piatto di 56 file
+con nomi come `NewSprite10.png` e `Transparent dark joystick border2.png`.
 
 ```
 src/assets/
-  blocks/        dirt.png, stone.png…
-  characters/    player.png
-  ui/            joystick-border.png, inventory-slot.png
-  props/
-public/data/
-  level.json     <- prodotto dall'editor
+  blocks/        basic.png  stack.png  orange.png
+  characters/    warrior.png  mage.png
+  props/         shop-building.png
+  backgrounds/   marble-diamond-tiles.jpg  wood-panel.jpg
+  ui/buttons/    menu.png  triangle-1..3.png
+  ui/joystick/   {flat,line,shaded,transparent}-{dark,light}-{border,thumb}.png
+  _da-classificare/   quello che non si sa ancora cosa sia
 ```
 
-Due regole: **la cartella decide la categoria, il nome del file decide l'id.**
+Due regole, e nient'altro: **la cartella decide la categoria, il nome del file
+decide l'id.** Un PNG lasciato cadere in `blocks/` diventa un blocco vero, in
+palette e piazzabile, senza toccare codice. Le cartelle che iniziano con `_`
+restano fuori dall'indice.
 
-Motivo tecnico per cui va in `src/` e non in `public/`: una pagina web non puo'
-elencare il contenuto di una cartella. Da `public/` l'editor non saprebbe cosa
-c'e' dentro e servirebbe un elenco scritto a mano; da `src/` Vite genera
-l'elenco al momento della build. Cosi' **si carica un PNG, si fa commit, e
-compare nell'editor** senza modifiche al codice. Prezzo: serve una build, cioe'
-il tempo del deploy.
+Il motivo tecnico per cui stanno in `src/` e non in `public/`: una pagina web
+non puo' elencare una cartella. Da `public/` servirebbe un elenco scritto a
+mano — cioe' il lavoro che questa struttura elimina. Da `src/` lo genera Vite
+in build (`assets/registry.ts`). Prezzo: serve una build, il tempo del deploy.
 
----
+Cosa e' cambiato nel codice:
+
+- `assets/registry.ts` indicizza tutto con `import.meta.glob`; la chiave Phaser
+  e' `categoria/nome`, unica per costruzione
+- `assets/blocks.ts` ne ricava il catalogo dei blocchi. Sta in un file a parte
+  perche' `import.meta.glob` e' roba di Vite: tenerlo fuori da `config.ts`
+  lascia quel file importabile da Node puro, che e' cio' che permette di
+  provare griglia e collisioni senza schermo
+- `BlockType` non e' piu' un'unione chiusa ma `string`: l'elenco vive nella
+  cartella, il compilatore non puo' conoscerlo
+- `level.json` migrato: `block_0` -> `basic`, `block_1` -> `stack`
+
+**18 file su 56 erano duplicati esatti** pixel-per-pixel: tutte le 16 coppie
+`X`/`X2` del pack joystick, piu' `Menu`/`Menu2` e `NewSprite8`/`NewSprite9`.
+Eliminati; git ne conserva la storia. Restano 38 file, 28 indicizzati.
 
 ## 7. Prossimi passi
 
-1. **Ristrutturazione cartelle + rinomina dei 54 file** — sblocca il resto
-2. **Pannello sprite con miniature + pennello** — il grosso del valore
-3. **Selezione, spostamento, cancellazione nell'editor**
-4. Quando GitHub rientra: verificare deploy web e produrre il primo APK
-5. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+1. ~~Ristrutturazione cartelle + rinomina~~ — **fatta** (sezione 6)
+2. **Arte del blocco isometrico** — e' il collo di bottiglia: finche' i blocchi
+   sono segnaposto wireframe, il gioco ha l'aspetto di uno scheletro. Lavoro
+   di grafica, non di codice
+3. **Personaggio leggibile**: `characters/warrior.png` e' 317x788, altissimo e
+   scuro, quasi invisibile in scena. `characters/mage.png` (229x316) ha
+   proporzioni migliori. Basta cambiare `PLAYER.texture`
+4. Classificare i 10 file in `_da-classificare/`
+5. Quando GitHub rientra: verificare deploy web e produrre il primo APK
 
 ---
 

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { ISO, TIMING, BLOCKS, type BlockType } from '../config';
+import { ISO, TIMING, type BlockType } from '../config';
+import { BLOCKS, DEFAULT_BLOCK } from '../assets/blocks';
 import { projection } from '../grid/projection';
 
 /**
@@ -24,7 +25,7 @@ export class GridPlacement {
   private breakStartedAt = 0;
 
   /** Tipo di blocco attualmente selezionato (lo slot di inventario). */
-  selected: BlockType = 'block_0';
+  selected: BlockType = DEFAULT_BLOCK;
 
   /** Chiamato quando un blocco viene rotto: serve a restituirlo all'inventario. */
   onBlockBroken?: (type: BlockType) => void;
@@ -36,6 +37,18 @@ export class GridPlacement {
   /** Chiave univoca di una cella, usata come identita' del blocco. */
   private static key(col: number, row: number): string {
     return `${col},${row}`;
+  }
+
+  /** Tipi gia' segnalati: un livello con 200 blocchi orfani non deve urlare 200 volte. */
+  private static readonly warned = new Set<BlockType>();
+
+  private static warnUnknownType(type: BlockType): void {
+    if (GridPlacement.warned.has(type)) return;
+    GridPlacement.warned.add(type);
+    console.warn(
+      `[blocchi] tipo "${type}" ignorato: manca src/assets/blocks/${type}.png. ` +
+        `Tipi disponibili: ${Object.keys(BLOCKS).join(', ') || '(nessuno)'}`,
+    );
   }
 
   /** Converte una coordinata mondo nella cella di griglia che la contiene. */
@@ -102,8 +115,18 @@ export class GridPlacement {
   spawn(col: number, row: number, type: BlockType = this.selected): boolean {
     if (this.isOccupied(col, row)) return false;
 
+    // Da quando i tipi di blocco vengono dai nomi dei file in
+    // `assets/blocks/`, un tipo puo' sparire: basta rinominare un PNG e un
+    // `level.json` gia' scritto lo cita ancora. Deve saltare quel blocco e
+    // caricare il resto, non far esplodere la scena.
+    const kind = BLOCKS[type];
+    if (!kind) {
+      GridPlacement.warnUnknownType(type);
+      return false;
+    }
+
     const { x, y } = GridPlacement.cellToWorld(col, row);
-    const sprite = this.scene.add.sprite(x, y, BLOCKS[type].texture);
+    const sprite = this.scene.add.sprite(x, y, kind.texture);
     // Largo quanto il rombo, altezza in proporzione: gli sprite dei blocchi
     // sono piu' alti della cella perche' mostrano anche la faccia frontale.
     sprite.setDisplaySize(ISO.tileWidth, sprite.height * (ISO.tileWidth / sprite.width));

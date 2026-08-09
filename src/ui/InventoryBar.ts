@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { INVENTORY, BLOCKS, Z } from '../config';
+import { INVENTORY, Z } from '../config';
+import { BLOCKS, DEFAULT_BLOCK } from '../assets/blocks';
 import type { Inventory } from '../mechanics/Inventory';
 
 interface SlotView {
@@ -53,7 +54,7 @@ export class InventoryBar {
         ? this.scene.add.image(0, 0, INVENTORY.slotTexture)
         : this.scene.add.rectangle(0, 0, 1, 1, 0x24242e, 0.85).setStrokeStyle(2, 0x3a3a48);
 
-      const icon = this.scene.add.image(0, 0, BLOCKS.block_0.texture).setVisible(false);
+      const icon = this.scene.add.image(0, 0, BLOCKS[DEFAULT_BLOCK]?.texture ?? '').setVisible(false);
 
       const count = this.scene.add
         .text(0, 0, '', { fontFamily: 'monospace', fontSize: '12px', color: '#e8e8ef' })

@@ -1,15 +1,15 @@
 {
-  "_comment": "Disposizione iniziale della scena. Questo file lo produci TU: a mano, o esportandolo da un editor di tilemap nel browser (es. spritefusion.com). Io non lo tocco.",
+  "_comment": "Disposizione iniziale della scena. Questo file lo produci TU: a mano, o esportandolo dall'editor (?editor=1). Il campo type e' il nome del file in src/assets/blocks/ senza estensione: basic.png diventa il tipo basic.",
   "blocks": [
-    { "col": 2, "row": 6, "type": "block_0" },
-    { "col": 3, "row": 6, "type": "block_0" },
-    { "col": 4, "row": 6, "type": "block_0" },
-    { "col": 5, "row": 6, "type": "block_0" },
-    { "col": 6, "row": 6, "type": "block_0" },
-    { "col": 4, "row": 5, "type": "block_1" },
-    { "col": 5, "row": 5, "type": "block_1" },
-    { "col": 9, "row": 8, "type": "block_0" },
-    { "col": 10, "row": 8, "type": "block_0" },
-    { "col": 10, "row": 7, "type": "block_1" }
+    { "col": 2, "row": 6, "type": "basic" },
+    { "col": 3, "row": 6, "type": "basic" },
+    { "col": 4, "row": 6, "type": "basic" },
+    { "col": 5, "row": 6, "type": "basic" },
+    { "col": 6, "row": 6, "type": "basic" },
+    { "col": 4, "row": 5, "type": "stack" },
+    { "col": 5, "row": 5, "type": "stack" },
+    { "col": 9, "row": 8, "type": "basic" },
+    { "col": 10, "row": 8, "type": "basic" },
+    { "col": 10, "row": 7, "type": "stack" }
   ]
 }
