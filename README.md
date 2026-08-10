@@ -184,7 +184,8 @@ quindi da `public/` servirebbe un elenco scritto a mano.
 
 | File | Cosa contiene |
 |---|---|
-| `src/config.ts` | Le costanti di gioco, portate 1:1 dalla tabella di `CLAUDE.md`. |
+| `CLAUDE.md` | Le istruzioni per chi scrive il codice: confini, invarianti, comandi. |
+| `src/config.ts` | Le costanti di gioco. |
 | `src/assets/catalog.ts` | L'elenco degli sprite, generato dal contenuto delle cartelle. |
 | `src/grid/` | La geometria della griglia, isolata dietro un'interfaccia. |
 | `src/mechanics/` | Le meccaniche. Una classe per meccanica, autonoma e testabile. |

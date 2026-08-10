@@ -337,7 +337,8 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Gesti | `editor/CameraGestures.ts` | pan e pinch a due dita, zoom ancorato al dito |
 | Selezione ad area | `editor/SelectionTool.ts` | rettangolo, riempimento, svuotamento, spostamento, appunti |
 | Apertura file | `editor/LevelEditor.ts` | legge un `level.json` dal dispositivo, annullabile |
-| Test | `test/`, `playwright.config.ts` | 39 test sul gioco che gira, in CI a ogni push |
+| Test | `test/`, `playwright.config.ts` | 49 test sul gioco che gira, in CI a ogni push |
+| Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
 
