@@ -101,6 +101,7 @@ export class LevelEditor {
   private toolButtons = new Map<Tool, HTMLButtonElement>();
   private undoButton!: HTMLButtonElement;
   private redoButton!: HTMLButtonElement;
+  private menuButton!: HTMLButtonElement;
   private deleteButton!: HTMLButtonElement;
   private selectionActions!: HTMLDivElement;
   private copyButton!: HTMLButtonElement;
@@ -761,6 +762,25 @@ export class LevelEditor {
     return this.scene.textures.getBase64(texture);
   }
 
+  /**
+   * Apre e chiude il foglio dei comandi rari.
+   *
+   * La classe sta sulla barra e non sul foglio perche' e' il CSS a decidere se
+   * il foglio si nasconde: sopra i 600px resta una riga sempre visibile, e ⋯
+   * non compare nemmeno. Cosi' su schermo largo non si perde un tocco per
+   * arrivare a Salva, e non ci sono due comportamenti da tenere allineati nel
+   * codice — ce n'e' uno solo, e una media query.
+   */
+  private toggleMenu(): void {
+    const open = this.root.classList.toggle('menu-open');
+    this.menuButton.setAttribute('aria-expanded', String(open));
+  }
+
+  private closeMenu(): void {
+    this.root.classList.remove('menu-open');
+    this.menuButton.setAttribute('aria-expanded', 'false');
+  }
+
   private button(label: string, onClick: () => void, parent: HTMLElement): HTMLButtonElement {
     const b = document.createElement('button');
     b.textContent = label;
@@ -838,6 +858,8 @@ export class LevelEditor {
         font-size: 10px; opacity: .8; max-width: 100%;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
+      /* Sopra i 600px il foglio e' una riga come le altre e ⋯ non serve. */
+      #editor-toolbar .menu { display: none; }
       #editor-toolbar .sep { width: 1px; align-self: stretch; background: #3a3a48; }
       #editor-toolbar .spacer { flex: 1 1 auto; }
       #editor-toolbar .hidden-input { display: none; }
@@ -895,6 +917,14 @@ export class LevelEditor {
         #editor-toolbar .tools button.azione .txt { display: inline; }
         #editor-toolbar .tools button { padding: 0 12px; font-size: 17px; }
         #editor-toolbar button, #layer-panel button, #level-tabs button { min-height: 38px; }
+        /* Il foglio si apre con ⋯. Restano sempre in vista le due righe che si
+           toccano di continuo — palette e strumenti — piu' annulla, zoom e il
+           conteggio dei blocchi. */
+        #editor-toolbar .menu { display: inline-block; }
+        #editor-toolbar:not(.menu-open) .sheet { display: none; }
+        /* Chiuso, il foglio si porta dentro anche la scritta "non salvato":
+           il pallino su ⋯ e' quello che resta a dirlo. */
+        #editor-toolbar .menu.dirty { border-color: #ffd166; color: #ffd166; }
         /* Il nome del layer porta anche il conteggio dei blocchi: stringendo
            la riga invece del pannello, non viene tagliato. */
         #layer-panel .row button { padding: 0 4px; }
@@ -971,6 +1001,33 @@ export class LevelEditor {
     this.button('+', () => this.gestures.zoomBy(ZOOM_STEP), view).title = 'Ingrandisci';
     this.button('⤢', () => this.resetView(), view).title = 'Reimposta vista';
 
+    // Apre l'ultima riga, che su telefono sta chiusa. Esiste solo li': sotto i
+    // 600px la barra occupava il 37% dello schermo, cioe' quasi quanto la scena
+    // che si sta costruendo, e meta' di quello spazio era per comandi che si
+    // toccano una volta a serata.
+    this.menuButton = this.button('⋯', () => this.toggleMenu(), view);
+    this.menuButton.className = 'menu';
+    this.menuButton.setAttribute('aria-expanded', 'false');
+
+    view.appendChild(Object.assign(document.createElement('span'), { className: 'spacer' }));
+    this.countLabel = document.createElement('span');
+    view.appendChild(this.countLabel);
+
+    // Riga 4: vista, salvataggio ed esportazione — il "foglio".
+    // Su schermo largo e' una riga come le altre; su telefono si apre con ⋯.
+    const file = document.createElement('div');
+    file.className = 'controls sheet';
+    this.root.appendChild(file);
+
+    // Chiude il foglio dopo un comando, cosi' la scena torna visibile senza un
+    // secondo tocco. Fanno eccezione quelli marcati `keep`: la griglia si
+    // accende e si spegne guardando il risultato, e Copia scrive li' dentro se
+    // ha funzionato — chiudendo, quella risposta non si leggerebbe.
+    file.addEventListener('click', (e) => {
+      const button = (e.target as HTMLElement).closest('button');
+      if (button && !button.dataset.keep) this.closeMenu();
+    });
+
     // Nasconde le linee della griglia per guardare la scena pulita.
     // Lo snap resta comunque attivo: si tocca sempre una cella.
     const grid = document.createElement('button');
@@ -983,17 +1040,9 @@ export class LevelEditor {
       this.scene.setGridVisible(!this.scene.gridVisible);
       syncGridLabel();
     };
+    grid.dataset.keep = '1';
     syncGridLabel();
-    view.appendChild(grid);
-
-    view.appendChild(Object.assign(document.createElement('span'), { className: 'spacer' }));
-    this.countLabel = document.createElement('span');
-    view.appendChild(this.countLabel);
-
-    // Riga 4: salvataggio ed esportazione.
-    const file = document.createElement('div');
-    file.className = 'controls';
-    this.root.appendChild(file);
+    file.appendChild(grid);
 
     const saveButton = this.button('💾 Salva', () => this.save(), file);
     saveButton.className = 'primary';
@@ -1028,6 +1077,7 @@ export class LevelEditor {
     // sbagliano peggio, e "scarica" e "copia" non si distinguono a icone.
     const copy = this.button('📋 Copia', () => this.copyToClipboard(copy), file);
     copy.title = 'Copia il JSON negli appunti';
+    copy.dataset.keep = '1';
     this.button('⬇ Scarica', () => this.download(), file).title =
       'Scarica level.json: è il file da caricare su GitHub, ed è questo che porta il lavoro nel gioco';
 
@@ -1083,6 +1133,15 @@ export class LevelEditor {
       collapse.textContent = this.layerPanel.classList.contains('collapsed') ? '▸' : '▾';
     }, head);
     collapse.title = 'Comprimi il pannello';
+
+    // E su telefono parte gia' chiuso: aperto occupa 228x168 sopra la scena,
+    // proprio l'angolo in cui l'origine isometrica mette i primi blocchi —
+    // si costruiva sotto un pannello. Su schermo largo lo spazio c'e', e
+    // aprirlo ogni volta sarebbe un tocco in piu' per niente.
+    if (window.matchMedia('(max-width: 600px)').matches) {
+      this.layerPanel.classList.add('collapsed');
+      collapse.textContent = '▸';
+    }
 
     this.layerList = document.createElement('div');
     this.layerList.className = 'list';
@@ -1241,6 +1300,13 @@ export class LevelEditor {
     this.cutButton.disabled = selected === 0;
     this.pasteButton.disabled = this.clipboard.length === 0;
     this.addLayerButton.disabled = this.placement.layers.length >= LAYERS.max;
+
+    // Su telefono lo stato per esteso e' dentro il foglio chiuso: senza questo,
+    // "non salvato" non lo direbbe piu' nessuno.
+    this.menuButton.classList.toggle('dirty', this.dirty);
+    this.menuButton.title = this.dirty
+      ? 'Altri comandi — lavoro non salvato'
+      : 'Altri comandi: griglia, salva, apri, scarica';
 
     if (!this.storage.available) {
       this.statusLabel.textContent = 'salvataggio non disponibile';

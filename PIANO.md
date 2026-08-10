@@ -271,6 +271,36 @@ salvato — sopravvivono al cambio di scheda, che e' il caso che conta, ma non a
 una ricarica. L'incolla atterra **sotto il puntatore** e non dove stava
 l'originale: incollare sopra se stesso sembra non aver fatto niente.
 
+### Quanto schermo resta per costruire
+
+Su un telefono da 390x780 la barra a quattro righe occupava **289px, il 37%**, e
+le schede altre 47: restavano 444px di scena, meno di due terzi. Peggio, il
+pannello dei layer galleggiava aperto sull'angolo in alto a destra — 228x168,
+proprio dove l'origine isometrica mette i primi blocchi, che finivano sotto.
+
+Il criterio per decidere cosa resta in vista e' **quante volte si tocca**:
+
+| Sempre in vista | Dietro **⋯** |
+|---|---|
+| palette, strumenti, annulla/rifai, zoom, ⤢, conteggio | griglia, Salva, Apri, Copia, Scarica, Gioca |
+
+Sono 171px invece di 289: **562px di scena invece di 444**. Sopra i 600px non
+cambia niente — il foglio resta una riga come le altre e ⋯ non compare
+nemmeno — perche' li' lo spazio c'e' e un tocco in piu' per arrivare a Salva
+sarebbe solo un peggioramento.
+
+Tre dettagli che non erano ovvi:
+
+- **il foglio si richiude da solo dopo un comando**, altrimenti resterebbe
+  aperto sopra la scena. Fanno eccezione la griglia e Copia: la prima si
+  commuta guardando il risultato, la seconda scrive proprio li' se ha
+  funzionato.
+- **il pallino giallo su ⋯**. Lo stato "non salvato" sta dentro il foglio: a
+  foglio chiuso, senza il pallino, non lo direbbe piu' nessuno — ed e' il
+  rischio piu' vecchio del progetto.
+- **su telefono il pannello dei layer parte chiuso.** Si apre quando serve,
+  invece di coprire l'angolo in cui si sta costruendo.
+
 ### Nascondere un layer e' una decisione che tiene
 
 All'inizio selezionare un layer nascosto lo riaccendeva, per non far disegnare
@@ -337,7 +367,7 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Gesti | `editor/CameraGestures.ts` | pan e pinch a due dita, zoom ancorato al dito |
 | Selezione ad area | `editor/SelectionTool.ts` | rettangolo, riempimento, svuotamento, spostamento, appunti |
 | Apertura file | `editor/LevelEditor.ts` | legge un `level.json` dal dispositivo, annullabile |
-| Test | `test/`, `playwright.config.ts` | 49 test sul gioco che gira, in CI a ogni push |
+| Test | `test/`, `playwright.config.ts` | 56 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
@@ -367,6 +397,10 @@ Test principali superati:
 - selezione: il rettangolo prende gli estremi e lascia fuori il blocco lontano;
   trascinandola si sposta di una cella e `Ctrl+Z` la rimette; `Canc` elimina
   esattamente i selezionati, ne' uno di piu' ne' uno di meno
+- ingombro della barra, misurato a 390x780 sull'editor che gira: la scena passa
+  da 444 a 562px; ⋯ apre il foglio e un comando lo richiude, la griglia no; a
+  foglio chiuso il pallino dice "non salvato"; **sopra i 600px non cambia
+  niente**, Salva resta a un tocco
 - pinch, con eventi touch veri via CDP: due dita che si allargano portano lo
   zoom da 1.00 a 1.87, e **il secondo dito annulla il blocco che il primo aveva
   gia' piazzato** — il conteggio resta identico
@@ -503,8 +537,10 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 7. ~~Copia e incolla della selezione~~ — **fatto**, anche fra schede
 8. ~~Produrre il primo APK~~ — **fatto**, 6,5 MB negli Artifacts. Resta da
    **installarlo su un telefono vero**
-9. **Provare l'editor con un dito vero.** E' il buco piu' grande rimasto: gesti,
-   selezione e dimensione dei pulsanti sono tarati su un viewport, non su una mano
+9. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
+   selezione e dimensione dei pulsanti sono tarati su un viewport, non su una
+   mano. L'ingombro della barra, che era il lato misurabile senza avere il
+   telefono in mano, e' stato ridotto — vedi "Quanto schermo resta per costruire"
 10. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
