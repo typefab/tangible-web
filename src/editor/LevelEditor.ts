@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GRID, LAYERS, type BlockType } from '../config';
+import { GRID, LAYERS, Z, type BlockType } from '../config';
 import { BLOCKS } from '../assets/catalog';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import {
@@ -8,8 +8,9 @@ import {
   type SerializedLevel,
   type SerializedProject,
 } from '../level/project';
+import { projection } from '../grid/projection';
 import { CameraGestures, ZOOM_STEP } from './CameraGestures';
-import { SelectionTool } from './SelectionTool';
+import { SelectionTool, type Picked } from './SelectionTool';
 import { EditorStorage, describeWhen } from './EditorStorage';
 import { chooseDialog } from './dialog';
 
@@ -70,6 +71,9 @@ const TOOL_KEYS: Record<string, Tool> = {
 /** Quanti passi indietro si possono fare. */
 const UNDO_LIMIT = 60;
 
+/** Verde per il riempimento: giallo e ciano sono gia' presi dalla selezione. */
+const FILL_COLOR = 0x9be36e;
+
 /** Copia profonda. Gli snapshot non devono condividere niente con lo stato vivo. */
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -94,6 +98,10 @@ export class LevelEditor {
   private undoButton!: HTMLButtonElement;
   private redoButton!: HTMLButtonElement;
   private deleteButton!: HTMLButtonElement;
+  private selectionActions!: HTMLDivElement;
+  private copyButton!: HTMLButtonElement;
+  private cutButton!: HTMLButtonElement;
+  private pasteButton!: HTMLButtonElement;
   private addLayerButton!: HTMLButtonElement;
 
   private tool: Tool = 'brush';
@@ -120,11 +128,28 @@ export class LevelEditor {
   private strokeStart: Snapshot | null = null;
   private panFrom: { x: number; y: number; scrollX: number; scrollY: number } | null = null;
 
+  /** Rettangolo del riempimento in corso, in coordinate mondo. */
+  private rectFrom: { x: number; y: number } | null = null;
+  private rectTo = { x: 0, y: 0 };
+  private fillPreview!: Phaser.GameObjects.Graphics;
+
+  /**
+   * Gli appunti, in coordinate relative al loro angolo. Vivono in memoria e non
+   * nel progetto salvato: sopravvivono al cambio di scheda — che e' il caso che
+   * conta, copiare un pezzo di livello in un altro — ma non a una ricarica.
+   */
+  private clipboard: Picked[] = [];
+  /** Dove stavano quando sono stati copiati: e' il ripiego per l'incolla senza puntatore. */
+  private clipboardOrigin = { col: 0, row: 0 };
+  /** L'ultima cella sotto il puntatore: e' li' che si incolla. */
+  private hoverCell: { col: number; row: number } | null = null;
+
   constructor(scene: Phaser.Scene, placement: GridPlacement, published: SerializedProject) {
     this.scene = scene as GameSceneLike;
     this.placement = placement;
     this.gestures = new CameraGestures(scene);
     this.selection = new SelectionTool(scene, placement);
+    this.fillPreview = scene.add.graphics().setDepth(Z.placeHitbox - 1);
 
     this.buildToolbar();
     this.buildLevelTabs();
@@ -348,6 +373,8 @@ export class LevelEditor {
       this.pointerDown = false;
       this.panFrom = null;
       this.selection.cancel();
+      this.rectFrom = null;
+      this.fillPreview.clear();
       if (this.strokeStart) {
         this.restore(this.strokeStart);
         this.strokeStart = null;
@@ -374,10 +401,18 @@ export class LevelEditor {
         this.refresh();
         return;
       }
+      if (this.tool === 'fill') {
+        this.rectFrom = this.worldOnPlane(p);
+        this.rectTo = this.rectFrom;
+        this.drawFillPreview();
+        return;
+      }
       this.applyAt(p);
     });
 
     input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
+      // Aggiornata anche a dito alzato: e' la cella dove finira' un incolla.
+      this.hoverCell = this.scene.cellUnder(p);
       if (!this.pointerDown || this.gestures.active) return;
 
       if (this.tool === 'pan') {
@@ -394,8 +429,12 @@ export class LevelEditor {
         return;
       }
 
-      // Il riempimento a trascinamento sarebbe distruttivo e incomprensibile.
-      if (this.tool === 'fill') return;
+      if (this.tool === 'fill') {
+        if (!this.rectFrom) return;
+        this.rectTo = this.worldOnPlane(p);
+        this.drawFillPreview();
+        return;
+      }
       this.applyAt(p);
     });
 
@@ -416,6 +455,8 @@ export class LevelEditor {
       const changed = this.selection.end();
       if (!changed) this.strokeStart = null;
       this.refresh();
+    } else if (this.tool === 'fill') {
+      this.applyFill();
     }
     this.commitStroke();
   }
@@ -449,6 +490,15 @@ export class LevelEditor {
         } else if (k === 's') {
           e.preventDefault();
           this.save();
+        } else if (k === 'c') {
+          e.preventDefault();
+          this.copySelection(false);
+        } else if (k === 'x') {
+          e.preventDefault();
+          this.copySelection(true);
+        } else if (k === 'v') {
+          e.preventDefault();
+          this.pasteClipboard();
         }
         return;
       }
@@ -496,8 +546,6 @@ export class LevelEditor {
       this.placement.spawn(col, row);
     } else if (this.tool === 'erase') {
       this.placement.remove(col, row);
-    } else if (this.tool === 'fill') {
-      this.fill(col, row);
     }
 
     this.refresh();
@@ -508,40 +556,152 @@ export class LevelEditor {
     return col >= GRID.drawFrom && col <= GRID.drawTo && row >= GRID.drawFrom && row <= GRID.drawTo;
   }
 
+  // ------------------------------------------------------------ riempimento
+
   /**
-   * Riempimento per contiguita' a partire dalla cella toccata, sul layer attivo.
+   * Riempimento a rettangolo: si trascina come la selezione, e al rilascio
+   * tutte le celle dentro prendono il blocco scelto nella palette.
    *
-   * Su cella vuota riempie l'area vuota collegata; su cella occupata sostituisce
-   * l'area contigua dello stesso tipo. E' il comportamento del secchiello di
-   * blurymind/tilemap-editor, che e' anche quello che ci si aspetta da un
-   * secchiello.
+   * Prima era un riempimento per contiguita' (il secchiello classico). E'
+   * stato cambiato dopo averlo usato: su una griglia quasi vuota il secchiello
+   * riempie tutto quello che tocca, che e' spettacolare e quasi mai quello che
+   * si voleva. Il rettangolo dice esattamente dove finisce.
+   *
+   * Come per la selezione il rettangolo e' una figura **sullo schermo**, quindi
+   * in isometrica copre un rombo di celle: si riempie quello che ci si vede
+   * dentro mentre lo si trascina.
    */
-  private fill(col: number, row: number): void {
-    const target = this.placement.typeAt(col, row);
-    const replacement = this.placement.selected;
-    if (target === replacement) return;
+  private applyFill(): void {
+    const cells = this.cellsInRect();
+    this.rectFrom = null;
+    this.fillPreview.clear();
+    if (cells.length === 0) return;
 
-    const seen = new Set<string>();
-    const queue: [number, number][] = [[col, row]];
+    for (const { col, row } of cells) {
+      // Prima si toglie: `spawn` rifiuta una cella occupata, e riempire
+      // sopra a qualcosa deve sostituirlo, non lasciarlo com'era.
+      this.placement.remove(col, row);
+      this.placement.spawn(col, row);
+    }
+    this.refresh();
+  }
 
-    while (queue.length > 0) {
-      const [c, r] = queue.pop() as [number, number];
-      const key = `${c},${r}`;
-      if (seen.has(key) || !this.inBounds(c, r)) continue;
+  /**
+   * Le celle il cui centro cade dentro il rettangolo tracciato.
+   *
+   * Si passano in rassegna tutte le celle della griglia disegnata: sono 625,
+   * cioe' niente, e cosi' il criterio e' identico a quello della selezione —
+   * il centro visibile dentro il rettangolo visibile — senza dover invertire
+   * la proiezione sugli angoli.
+   */
+  private cellsInRect(): { col: number; row: number }[] {
+    if (!this.rectFrom) return [];
 
-      if (this.placement.typeAt(c, r) !== target) continue;
+    const rect = new Phaser.Geom.Rectangle(
+      Math.min(this.rectFrom.x, this.rectTo.x),
+      Math.min(this.rectFrom.y, this.rectTo.y),
+      Math.abs(this.rectTo.x - this.rectFrom.x),
+      Math.abs(this.rectTo.y - this.rectFrom.y),
+    );
 
-      seen.add(key);
-      if (target !== undefined) this.placement.remove(c, r);
-      this.placement.spawn(c, r, replacement);
+    const lift = this.scene.activeElevationY;
+    const out: { col: number; row: number }[] = [];
+    for (let row = GRID.drawFrom; row <= GRID.drawTo; row++) {
+      for (let col = GRID.drawFrom; col <= GRID.drawTo; col++) {
+        const c = GridPlacement.cellToWorld(col, row);
+        if (rect.contains(c.x, c.y + lift)) out.push({ col, row });
+      }
+    }
+    return out;
+  }
 
-      queue.push([c + 1, r], [c - 1, r], [c, r + 1], [c, r - 1]);
+  private drawFillPreview(): void {
+    const g = this.fillPreview;
+    g.clear();
+    if (!this.rectFrom) return;
+
+    const rect = new Phaser.Geom.Rectangle(
+      Math.min(this.rectFrom.x, this.rectTo.x),
+      Math.min(this.rectFrom.y, this.rectTo.y),
+      Math.abs(this.rectTo.x - this.rectFrom.x),
+      Math.abs(this.rectTo.y - this.rectFrom.y),
+    );
+    g.lineStyle(1, FILL_COLOR, 0.9).strokeRectShape(rect);
+
+    // Le celle che verranno riempite, non solo il rettangolo: in isometrica il
+    // rettangolo da solo non dice quali rombi prende.
+    const lift = this.scene.activeElevationY;
+    g.fillStyle(FILL_COLOR, 0.25);
+    for (const { col, row } of this.cellsInRect()) {
+      const outline = projection.cellOutline(col, row).map((pt) => ({ x: pt.x, y: pt.y + lift }));
+      g.fillPoints(outline, true);
     }
   }
 
   private deleteSelection(): void {
     if (this.selection.count === 0) return;
     this.edit(() => this.selection.deleteSelected());
+  }
+
+  // -------------------------------------------------------------- appunti
+
+  /**
+   * Mette la selezione negli appunti, in coordinate relative al suo angolo.
+   *
+   * Relative e non assolute perche' l'incolla deve poter atterrare altrove — su
+   * un'altra cella, un altro layer o un'altra scheda — mantenendo la forma.
+   */
+  private copySelection(cut: boolean): void {
+    const blocks = this.selection.snapshot();
+    if (blocks.length === 0) return;
+
+    const minCol = Math.min(...blocks.map((b) => b.col));
+    const minRow = Math.min(...blocks.map((b) => b.row));
+    this.clipboard = blocks.map((b) => ({ ...b, col: b.col - minCol, row: b.row - minRow }));
+    this.clipboardOrigin = { col: minCol, row: minRow };
+
+    if (cut) this.edit(() => this.selection.deleteSelected());
+    else this.refresh();
+  }
+
+  /**
+   * Incolla sul **layer attivo**, sotto il puntatore.
+   *
+   * Sotto il puntatore e non dove stava: incollare sopra l'originale sembra non
+   * aver fatto niente. Senza puntatore — da tastiera, appena aperta la pagina —
+   * si ripiega sulla posizione di partenza spostata di una cella, che e' visibile
+   * e non copre quello che c'era.
+   */
+  private pasteClipboard(): void {
+    if (this.clipboard.length === 0) return;
+
+    const width = Math.max(...this.clipboard.map((b) => b.col));
+    const height = Math.max(...this.clipboard.map((b) => b.row));
+    const wanted = this.hoverCell ?? {
+      col: this.clipboardOrigin.col + 1,
+      row: this.clipboardOrigin.row + 1,
+    };
+    // Si sposta tutto dentro la griglia invece di scartare i pezzi che escono:
+    // un incolla non deve mangiarsi in silenzio meta' di quello che copi.
+    const anchor = {
+      col: Phaser.Math.Clamp(wanted.col, GRID.drawFrom, GRID.drawTo - width),
+      row: Phaser.Math.Clamp(wanted.row, GRID.drawFrom, GRID.drawTo - height),
+    };
+
+    this.edit(() => {
+      const placed: Picked[] = [];
+      for (const b of this.clipboard) {
+        const col = anchor.col + b.col;
+        const row = anchor.row + b.row;
+        this.placement.remove(col, row);
+        if (this.placement.spawn(col, row, b.type)) placed.push({ col, row, type: b.type });
+      }
+      // Quello che arriva resta in mano, pronto da trascinare. E per vederlo
+      // serve lo strumento selezione: incollare con la gomma attiva mostrerebbe
+      // dei blocchi senza dire che sono selezionati.
+      this.selection.adopt(placed);
+      if (this.tool !== 'select') this.setTool('select');
+    });
   }
 
   // ----------------------------------------------------------------- undo
@@ -651,6 +811,10 @@ export class LevelEditor {
     this.tool = tool;
     if (tool === 'select') this.selection.show();
     else this.selection.hide();
+    // Un rettangolo di riempimento a meta' non deve restare disegnato addosso
+    // allo strumento successivo.
+    this.rectFrom = null;
+    this.fillPreview.clear();
     this.refresh();
   }
 
@@ -711,6 +875,8 @@ export class LevelEditor {
       }
       #editor-toolbar .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
       #editor-toolbar .tools button { display: inline-flex; align-items: center; gap: 6px; }
+      #editor-toolbar .group { display: flex; flex-wrap: wrap; gap: 8px; }
+      #editor-toolbar .group[hidden] { display: none; }
       /* La palette scorre invece di andare a capo: con molti sprite caricati
          una barra che cresce in altezza mangerebbe tutta la scena. */
       #editor-toolbar .palette-strip {
@@ -841,7 +1007,24 @@ export class LevelEditor {
       const [icon, text] = TOOL_LABELS[tool];
       this.toolButtons.set(tool, this.iconButton(icon, text, () => this.setTool(tool), tools));
     }
-    this.deleteButton = this.iconButton('🗑', 'Cancella', () => this.deleteSelection(), tools);
+    // Copia, taglia e incolla stanno anche come pulsanti: su telefono il Ctrl
+    // non c'e', e sarebbero funzioni raggiungibili solo da tastiera.
+    //
+    // Compaiono solo quando servono davvero — c'e' una selezione, o qualcosa
+    // negli appunti. Tenerli sempre li' disabilitati costava una riga intera
+    // della barra su telefono, per pulsanti inutilizzabili nove volte su dieci.
+    this.selectionActions = document.createElement('div');
+    this.selectionActions.className = 'group';
+    tools.appendChild(this.selectionActions);
+
+    const box = this.selectionActions;
+    this.copyButton = this.iconButton('⧉', 'Copia', () => this.copySelection(false), box);
+    this.copyButton.title = 'Copia i blocchi selezionati (Ctrl+C)';
+    this.cutButton = this.iconButton('✂', 'Taglia', () => this.copySelection(true), box);
+    this.cutButton.title = 'Taglia i blocchi selezionati (Ctrl+X)';
+    this.pasteButton = this.iconButton('📥', 'Incolla', () => this.pasteClipboard(), box);
+    this.pasteButton.title = 'Incolla sul layer attivo, sotto il puntatore (Ctrl+V)';
+    this.deleteButton = this.iconButton('🗑', 'Cancella', () => this.deleteSelection(), box);
     this.deleteButton.title = 'Elimina i blocchi selezionati (Canc)';
 
     // Riga 3: cronologia, vista, griglia, conteggio.
@@ -1110,7 +1293,13 @@ export class LevelEditor {
     }
     this.undoButton.disabled = this.undoStack.length === 0;
     this.redoButton.disabled = this.redoStack.length === 0;
+    // Il gruppo compare quando c'e' qualcosa da fare: una selezione in mano,
+    // o degli appunti da incollare.
+    this.selectionActions.hidden = selected === 0 && this.clipboard.length === 0;
     this.deleteButton.disabled = selected === 0;
+    this.copyButton.disabled = selected === 0;
+    this.cutButton.disabled = selected === 0;
+    this.pasteButton.disabled = this.clipboard.length === 0;
     this.addLayerButton.disabled = this.placement.layers.length >= LAYERS.max;
 
     if (!this.storage.available) {

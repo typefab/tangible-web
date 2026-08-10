@@ -81,6 +81,123 @@ test.describe('selezione', () => {
     await page.keyboard.press(']');
     expect((await state(page)).selezionati).toBe(0);
   });
+
+  test('Ctrl+C e Ctrl+V duplicano la selezione altrove', async ({ page }) => {
+    await selezionaLaFila(page);
+    const prima = await state(page);
+
+    await page.keyboard.press('Control+c');
+    // Il puntatore decide dove atterra: lo si porta su una zona vuota.
+    const vuoto = await cellAt(page, 14, 14);
+    await page.mouse.move(vuoto.x, vuoto.y);
+    await page.keyboard.press('Control+v');
+
+    const dopo = await state(page);
+    expect(dopo.blocchi).toBe(prima.blocchi + prima.selezionati);
+    // Quello che arriva resta selezionato, pronto da trascinare.
+    expect(dopo.selezionati).toBe(prima.selezionati);
+  });
+
+  test('Ctrl+X toglie i blocchi e Ctrl+V li rimette', async ({ page }) => {
+    await selezionaLaFila(page);
+    const prima = await state(page);
+
+    await page.keyboard.press('Control+x');
+    expect((await state(page)).blocchi).toBe(prima.blocchi - prima.selezionati);
+
+    const vuoto = await cellAt(page, 14, 14);
+    await page.mouse.move(vuoto.x, vuoto.y);
+    await page.keyboard.press('Control+v');
+    expect((await state(page)).blocchi).toBe(prima.blocchi);
+  });
+
+  test('si incolla anche in un\'altra scheda', async ({ page }) => {
+    await selezionaLaFila(page);
+    const copiati = (await state(page)).selezionati;
+    await page.keyboard.press('Control+c');
+
+    await page.click('#level-tabs .tabs button:nth-child(2)');
+    const prima = await state(page);
+
+    const vuoto = await cellAt(page, 14, 14);
+    await page.mouse.move(vuoto.x, vuoto.y);
+    await page.keyboard.press('Control+v');
+
+    expect((await state(page)).blocchi).toBe(prima.blocchi + copiati);
+  });
+
+  test('un incolla si annulla con Ctrl+Z', async ({ page }) => {
+    await selezionaLaFila(page);
+    const prima = await state(page);
+
+    await page.keyboard.press('Control+c');
+    const vuoto = await cellAt(page, 14, 14);
+    await page.mouse.move(vuoto.x, vuoto.y);
+    await page.keyboard.press('Control+v');
+    await page.keyboard.press('Control+z');
+
+    expect((await state(page)).blocchi).toBe(prima.blocchi);
+  });
+});
+
+test.describe('riempimento a rettangolo', () => {
+  test.beforeEach(async ({ page }) => {
+    await openEditor(page);
+    await tool(page, 'Riempi').click();
+  });
+
+  test('trascinando un rettangolo si riempiono le celle dentro', async ({ page }) => {
+    const prima = await state(page);
+
+    // Il rettangolo si traccia attorno a una cella vuota, con uno scarto in
+    // pixel su entrambi gli assi. Prendere due celle e usarle come angoli non
+    // funziona: in isometrica due celle sulla stessa diagonale hanno la stessa
+    // x, e il rettangolo verrebbe largo zero.
+    const centro = await cellAt(page, 14, 14);
+    await drag(
+      page,
+      { x: centro.x - 70, y: centro.y - 45 },
+      { x: centro.x + 70, y: centro.y + 45 },
+    );
+
+    const dopo = await state(page);
+    expect(dopo.blocchi).toBeGreaterThan(prima.blocchi);
+
+    const dentro = await page.evaluate(
+      () => !!window.game.scene.keys.GameScene.placement.blockAt(14, 14, 0),
+    );
+    expect(dentro).toBe(true);
+  });
+
+  test('riempie col blocco scelto nella palette, sostituendo quello che trova', async ({ page }) => {
+    await page.click('#editor-toolbar button.palette[title="Stack"]');
+    await tool(page, 'Riempi').click();
+
+    // (2,6) nel file di partenza e' un "basic": il riempimento deve coprirlo.
+    const a = await cellAt(page, 2, 6);
+    const b = await cellAt(page, 3, 6);
+    await drag(page, { x: a.x - 20, y: a.y - 20 }, { x: b.x + 20, y: b.y + 20 });
+
+    const tipo = await page.evaluate(() =>
+      window.game.scene.keys.GameScene.placement.typeAt(2, 6, 0),
+    );
+    expect(tipo).toBe('stack');
+  });
+
+  test('un riempimento intero conta come un solo annullamento', async ({ page }) => {
+    const prima = await state(page);
+
+    const centro = await cellAt(page, 14, 14);
+    await drag(
+      page,
+      { x: centro.x - 70, y: centro.y - 45 },
+      { x: centro.x + 70, y: centro.y + 45 },
+    );
+    expect((await state(page)).blocchi).toBeGreaterThan(prima.blocchi);
+
+    await page.keyboard.press('Control+z');
+    expect((await state(page)).blocchi).toBe(prima.blocchi);
+  });
 });
 
 test.describe('gesti a due dita', () => {

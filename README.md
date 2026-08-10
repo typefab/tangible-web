@@ -69,7 +69,8 @@ Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
 
 - la fila in alto nella barra e' la **palette**: scegli il blocco da piazzare
 - **🖌 Pennello** (`B`) piazza, anche trascinando; **🧽 Gomma** (`E`) cancella
-- **🪣 Riempi** (`G`) riempie l'area contigua
+- **🪣 Riempi** (`G`) si trascina come la selezione: traccia un rettangolo e
+  tutte le celle dentro prendono il blocco scelto, sostituendo quello che c'era
 - **↶ / ↷** annullano e rifanno (`Ctrl+Z`, `Ctrl+Shift+Z`); un trascinamento
   intero conta come un solo passo
 - **Griglia: on/off** nasconde le linee per guardare la scena pulita; lo snap
@@ -83,8 +84,14 @@ al rilascio resta selezionato tutto quello che ci e' finito dentro. Come in
 GDevelop.
 
 - **trascina dentro la selezione** per spostarla, di cella in cella
+- **⧉ Copia** (`Ctrl+C`), **✂ Taglia** (`Ctrl+X`), **📥 Incolla** (`Ctrl+V`)
 - **🗑 Cancella** o il tasto `Canc` elimina i blocchi selezionati
 - `Esc` annulla la selezione
+
+L'incolla atterra **sotto il puntatore**, sul layer attivo, e quello che arriva
+resta selezionato: puoi trascinarlo subito dove vuoi. Gli appunti sopravvivono al
+cambio di scheda, quindi si copia un pezzo di livello dentro un altro — ma non a
+una ricarica della pagina.
 
 Vale sul layer attivo e solo su quello, come il pennello. Il rettangolo e' una
 figura sullo schermo: su griglia isometrica copre un rombo di celle, quindi
@@ -191,7 +198,8 @@ quindi da `public/` servirebbe un elenco scritto a mano.
 - **Piu' livelli in un file solo**, con le schede nell'editor e `?level=` in gioco
 - **Salvataggio locale con conferma**: l'editor ricorda, ma chiede sempre prima
   di ripristinare
-- **Selezione a rettangolo**, con spostamento ed eliminazione
+- **Selezione a rettangolo**, con spostamento, copia/taglia/incolla ed eliminazione
+- **Riempimento a rettangolo**, anche fra layer e schede
 - **Due dita** per spostarsi e ingrandire, in qualsiasi strumento
 
 Dettagli, verifiche e rischi aperti stanno in [PIANO.md](PIANO.md).
