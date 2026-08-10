@@ -2,13 +2,15 @@ import { expect, test } from '@playwright/test';
 import { blockAt, cellAt, drag, openEditor, state, tool } from './helpers';
 
 /**
- * Selezione a rettangolo e gesti a due dita.
+ * Selezione, appunti e gesti a due dita.
  *
- * Nota sul rettangolo: e' una figura **sullo schermo**, quindi su griglia
- * isometrica copre un rombo di celle, non un blocco di righe e colonne. Prende
- * quello che ci si vede dentro — che e' il punto — e per questo i test non
- * contano celle a mano ma verificano che gli estremi ci siano e che i blocchi
- * lontani restino fuori.
+ * Due cose da tenere a mente leggendo questi test:
+ *
+ * - **la selezione e' un'area di celle**, vuote comprese. `selezionati` conta
+ *   celle, `selBlocchi` conta quante di quelle celle hanno un blocco.
+ * - il rettangolo e' una figura **sullo schermo**, quindi su griglia isometrica
+ *   copre un rombo di celle. Per questo i test non contano celle a mano ma
+ *   verificano che gli estremi ci siano e che i blocchi lontani restino fuori.
  */
 test.describe('selezione', () => {
   test.beforeEach(async ({ page }) => {
@@ -26,11 +28,11 @@ test.describe('selezione', () => {
   test('il rettangolo prende quello che ci sta dentro', async ({ page }) => {
     await selezionaLaFila(page);
 
-    expect((await state(page)).selezionati).toBeGreaterThanOrEqual(5);
+    expect((await state(page)).selBlocchi).toBeGreaterThanOrEqual(5);
     const dentro = await page.evaluate(() => {
       const sel = window.game.scene.keys.GameScene.editor.selection;
       const c = (col: number, row: number) =>
-        sel.selected.some((b: { col: number; row: number }) => b.col === col && b.row === row);
+        sel.cells.some((x: { col: number; row: number }) => x.col === col && x.row === row);
       return { estremi: c(2, 6) && c(6, 6), lontano: c(10, 8) };
     });
     expect(dentro.estremi).toBe(true);
@@ -58,14 +60,16 @@ test.describe('selezione', () => {
     expect(tornato).toBe(true);
   });
 
-  test('Canc elimina esattamente i selezionati', async ({ page }) => {
+  test('Canc svuota l\'area, ma l\'area resta selezionata', async ({ page }) => {
     await selezionaLaFila(page);
     const prima = await state(page);
 
     await page.keyboard.press('Delete');
     const dopo = await state(page);
-    expect(dopo.blocchi).toBe(prima.blocchi - prima.selezionati);
-    expect(dopo.selezionati).toBe(0);
+    expect(dopo.blocchi).toBe(prima.blocchi - prima.selBlocchi);
+    expect(dopo.selBlocchi).toBe(0);
+    // L'area rimane in mano: dopo aver svuotato si vuole quasi sempre riempire.
+    expect(dopo.selezionati).toBe(prima.selezionati);
   });
 
   test('Esc annulla la selezione', async ({ page }) => {
@@ -93,9 +97,9 @@ test.describe('selezione', () => {
     await page.keyboard.press('Control+v');
 
     const dopo = await state(page);
-    expect(dopo.blocchi).toBe(prima.blocchi + prima.selezionati);
+    expect(dopo.blocchi).toBe(prima.blocchi + prima.selBlocchi);
     // Quello che arriva resta selezionato, pronto da trascinare.
-    expect(dopo.selezionati).toBe(prima.selezionati);
+    expect(dopo.selBlocchi).toBe(prima.selBlocchi);
   });
 
   test('Ctrl+X toglie i blocchi e Ctrl+V li rimette', async ({ page }) => {
@@ -103,7 +107,7 @@ test.describe('selezione', () => {
     const prima = await state(page);
 
     await page.keyboard.press('Control+x');
-    expect((await state(page)).blocchi).toBe(prima.blocchi - prima.selezionati);
+    expect((await state(page)).blocchi).toBe(prima.blocchi - prima.selBlocchi);
 
     const vuoto = await cellAt(page, 14, 14);
     await page.mouse.move(vuoto.x, vuoto.y);
@@ -113,7 +117,7 @@ test.describe('selezione', () => {
 
   test('si incolla anche in un\'altra scheda', async ({ page }) => {
     await selezionaLaFila(page);
-    const copiati = (await state(page)).selezionati;
+    const copiati = (await state(page)).selBlocchi;
     await page.keyboard.press('Control+c');
 
     await page.click('#level-tabs .tabs button:nth-child(2)');
@@ -140,59 +144,80 @@ test.describe('selezione', () => {
   });
 });
 
-test.describe('riempimento a rettangolo', () => {
+test.describe('pennello e gomma sull\'area selezionata', () => {
   test.beforeEach(async ({ page }) => {
     await openEditor(page);
-    await tool(page, 'Riempi').click();
+    await tool(page, 'Seleziona').click();
   });
 
-  test('trascinando un rettangolo si riempiono le celle dentro', async ({ page }) => {
-    const prima = await state(page);
-
-    // Il rettangolo si traccia attorno a una cella vuota, con uno scarto in
-    // pixel su entrambi gli assi. Prendere due celle e usarle come angoli non
-    // funziona: in isometrica due celle sulla stessa diagonale hanno la stessa
-    // x, e il rettangolo verrebbe largo zero.
+  /** Traccia un rettangolo attorno a una cella vuota e restituisce l'area presa. */
+  async function selezionaZonaVuota(page: import('@playwright/test').Page): Promise<number> {
+    // Due celle come angoli non funzionano: in isometrica le celle sulla stessa
+    // diagonale hanno la stessa x, e il rettangolo verrebbe largo zero.
     const centro = await cellAt(page, 14, 14);
     await drag(
       page,
       { x: centro.x - 70, y: centro.y - 45 },
       { x: centro.x + 70, y: centro.y + 45 },
     );
+    return (await state(page)).selezionati;
+  }
+
+  test('il pennello riempie l\'area, celle vuote comprese', async ({ page }) => {
+    const prima = await state(page);
+    const celle = await selezionaZonaVuota(page);
+    expect(celle).toBeGreaterThan(1);
+    // Zona vuota: nessun blocco dentro, eppure si deve poter riempire.
+    expect((await state(page)).selBlocchi).toBe(0);
+
+    await tool(page, 'Riempi area').click();
 
     const dopo = await state(page);
-    expect(dopo.blocchi).toBeGreaterThan(prima.blocchi);
-
-    const dentro = await page.evaluate(
-      () => !!window.game.scene.keys.GameScene.placement.blockAt(14, 14, 0),
-    );
-    expect(dentro).toBe(true);
+    expect(dopo.blocchi).toBe(prima.blocchi + celle);
+    expect(await page.evaluate(() => !!window.game.scene.keys.GameScene.placement.blockAt(14, 14, 0))).toBe(true);
   });
 
-  test('riempie col blocco scelto nella palette, sostituendo quello che trova', async ({ page }) => {
+  test('riempie col blocco scelto nella palette', async ({ page }) => {
     await page.click('#editor-toolbar button.palette[title="Stack"]');
-    await tool(page, 'Riempi').click();
-
-    // (2,6) nel file di partenza e' un "basic": il riempimento deve coprirlo.
-    const a = await cellAt(page, 2, 6);
-    const b = await cellAt(page, 3, 6);
-    await drag(page, { x: a.x - 20, y: a.y - 20 }, { x: b.x + 20, y: b.y + 20 });
+    await selezionaZonaVuota(page);
+    await tool(page, 'Riempi area').click();
 
     const tipo = await page.evaluate(() =>
-      window.game.scene.keys.GameScene.placement.typeAt(2, 6, 0),
+      window.game.scene.keys.GameScene.placement.typeAt(14, 14, 0),
     );
     expect(tipo).toBe('stack');
   });
 
+  test('la gomma svuota l\'area e il pennello la ripristina', async ({ page }) => {
+    const celle = await selezionaZonaVuota(page);
+    await tool(page, 'Riempi area').click();
+    const pieno = (await state(page)).blocchi;
+
+    await tool(page, 'Svuota area').click();
+    expect((await state(page)).blocchi).toBe(pieno - celle);
+
+    await tool(page, 'Riempi area').click();
+    expect((await state(page)).blocchi).toBe(pieno);
+  });
+
+  test('senza selezione i pulsanti tornano a essere strumenti', async ({ page }) => {
+    // Con la selezione i due pulsanti si chiamano diversamente.
+    await selezionaZonaVuota(page);
+    await expect(tool(page, 'Riempi area')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(tool(page, 'Pennello')).toBeVisible();
+
+    // E tornano a cambiare strumento invece di agire.
+    await tool(page, 'Pennello').click();
+    const attivo = await page.evaluate(() => window.game.scene.keys.GameScene.editor.tool);
+    expect(attivo).toBe('brush');
+  });
+
   test('un riempimento intero conta come un solo annullamento', async ({ page }) => {
     const prima = await state(page);
-
-    const centro = await cellAt(page, 14, 14);
-    await drag(
-      page,
-      { x: centro.x - 70, y: centro.y - 45 },
-      { x: centro.x + 70, y: centro.y + 45 },
-    );
+    await selezionaZonaVuota(page);
+    await tool(page, 'Riempi area').click();
     expect((await state(page)).blocchi).toBeGreaterThan(prima.blocchi);
 
     await page.keyboard.press('Control+z');

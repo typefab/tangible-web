@@ -59,13 +59,29 @@ test.describe('layer', () => {
     expect(risultato.toccato).toBe(0);
   });
 
-  test('il layer attivo torna visibile quando lo si sceglie', async ({ page }) => {
+  test('un layer nascosto resta nascosto anche selezionandolo', async ({ page }) => {
     await page.evaluate(() => window.game.scene.keys.GameScene.placement.setLayerVisible(1, false));
     await page.keyboard.press(']');
 
     const s = await state(page);
     expect(s.layerAttivo).toBe(1);
-    expect(s.layer[1]!.visibile).toBe(true);
+    // Nascondere e' una decisione che tiene: l'unico modo di rivederlo e' l'occhio.
+    expect(s.layer[1]!.visibile).toBe(false);
+  });
+
+  test('l\'occhio riaccende anche il layer attivo', async ({ page }) => {
+    await page.keyboard.press(']');
+    // La lista e' disegnata in `column-reverse`, ma l'ordine nel DOM resta
+    // quello degli indici: la riga 1 e' il layer 1.
+    const occhio = page.locator('#layer-panel .row').nth(1).locator('button').first();
+
+    await occhio.click();
+    expect((await state(page)).layer[1]!.visibile).toBe(false);
+
+    // Se l'occhio del layer attivo fosse bloccato, nasconderlo sarebbe una
+    // trappola senza uscita.
+    await occhio.click();
+    expect((await state(page)).layer[1]!.visibile).toBe(true);
   });
 
   test('non si superano gli 8 piani', async ({ page }) => {

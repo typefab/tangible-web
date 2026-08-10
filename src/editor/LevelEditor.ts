@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GRID, LAYERS, Z, type BlockType } from '../config';
+import { GRID, LAYERS, type BlockType } from '../config';
 import { BLOCKS } from '../assets/catalog';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import {
@@ -8,7 +8,6 @@ import {
   type SerializedLevel,
   type SerializedProject,
 } from '../level/project';
-import { projection } from '../grid/projection';
 import { CameraGestures, ZOOM_STEP } from './CameraGestures';
 import { SelectionTool, type Picked } from './SelectionTool';
 import { EditorStorage, describeWhen } from './EditorStorage';
@@ -48,31 +47,36 @@ interface GameSceneLike extends Phaser.Scene {
  */
 type Snapshot = { project: SerializedProject; level: number; layer: number };
 
-const TOOLS = ['brush', 'erase', 'fill', 'select', 'pan'] as const;
+const TOOLS = ['brush', 'erase', 'select', 'pan'] as const;
 type Tool = (typeof TOOLS)[number];
 
 /** Icona e parola separate: su schermo stretto resta solo l'icona. */
 const TOOL_LABELS: Record<Tool, [icon: string, text: string]> = {
   brush: ['🖌', 'Pennello'],
   erase: ['🧽', 'Gomma'],
-  fill: ['🪣', 'Riempi'],
   select: ['⬚', 'Seleziona'],
   pan: ['✋', 'Sposta'],
+};
+
+/**
+ * Come si chiamano pennello e gomma quando c'e' una selezione: li' non
+ * cambiano strumento, agiscono sull'area. Il pulsante dice cosa fara' adesso,
+ * cosi' non serve spiegare la doppia funzione da nessuna parte.
+ */
+const AREA_LABELS: Partial<Record<Tool, [icon: string, text: string]>> = {
+  brush: ['🪣', 'Riempi area'],
+  erase: ['🧹', 'Svuota area'],
 };
 
 const TOOL_KEYS: Record<string, Tool> = {
   b: 'brush',
   e: 'erase',
-  g: 'fill',
   s: 'select',
   h: 'pan',
 };
 
 /** Quanti passi indietro si possono fare. */
 const UNDO_LIMIT = 60;
-
-/** Verde per il riempimento: giallo e ciano sono gia' presi dalla selezione. */
-const FILL_COLOR = 0x9be36e;
 
 /** Copia profonda. Gli snapshot non devono condividere niente con lo stato vivo. */
 function clone<T>(value: T): T {
@@ -128,11 +132,6 @@ export class LevelEditor {
   private strokeStart: Snapshot | null = null;
   private panFrom: { x: number; y: number; scrollX: number; scrollY: number } | null = null;
 
-  /** Rettangolo del riempimento in corso, in coordinate mondo. */
-  private rectFrom: { x: number; y: number } | null = null;
-  private rectTo = { x: 0, y: 0 };
-  private fillPreview!: Phaser.GameObjects.Graphics;
-
   /**
    * Gli appunti, in coordinate relative al loro angolo. Vivono in memoria e non
    * nel progetto salvato: sopravvivono al cambio di scheda — che e' il caso che
@@ -149,7 +148,6 @@ export class LevelEditor {
     this.placement = placement;
     this.gestures = new CameraGestures(scene);
     this.selection = new SelectionTool(scene, placement);
-    this.fillPreview = scene.add.graphics().setDepth(Z.placeHitbox - 1);
 
     this.buildToolbar();
     this.buildLevelTabs();
@@ -373,8 +371,6 @@ export class LevelEditor {
       this.pointerDown = false;
       this.panFrom = null;
       this.selection.cancel();
-      this.rectFrom = null;
-      this.fillPreview.clear();
       if (this.strokeStart) {
         this.restore(this.strokeStart);
         this.strokeStart = null;
@@ -401,12 +397,6 @@ export class LevelEditor {
         this.refresh();
         return;
       }
-      if (this.tool === 'fill') {
-        this.rectFrom = this.worldOnPlane(p);
-        this.rectTo = this.rectFrom;
-        this.drawFillPreview();
-        return;
-      }
       this.applyAt(p);
     });
 
@@ -429,12 +419,6 @@ export class LevelEditor {
         return;
       }
 
-      if (this.tool === 'fill') {
-        if (!this.rectFrom) return;
-        this.rectTo = this.worldOnPlane(p);
-        this.drawFillPreview();
-        return;
-      }
       this.applyAt(p);
     });
 
@@ -455,8 +439,6 @@ export class LevelEditor {
       const changed = this.selection.end();
       if (!changed) this.strokeStart = null;
       this.refresh();
-    } else if (this.tool === 'fill') {
-      this.applyFill();
     }
     this.commitStroke();
   }
@@ -510,7 +492,13 @@ export class LevelEditor {
         }
         return;
       }
-      if (e.key === 'Escape') return this.selection.clear();
+      if (e.key === 'Escape') {
+        // Anche la barra deve tornare indietro: senza il refresh i pulsanti
+        // restavano "Riempi area" su una selezione che non c'era piu'.
+        this.selection.clear();
+        this.refresh();
+        return;
+      }
 
       // Parentesi quadre per salire e scendere di piano: sono le stesse di
       // Photoshop per cambiare livello, e stanno vicine su ogni layout.
@@ -518,7 +506,7 @@ export class LevelEditor {
       if (e.key === ']') return this.selectLayer(this.placement.activeLayer + 1);
 
       const tool = TOOL_KEYS[e.key.toLowerCase()];
-      if (tool) this.setTool(tool);
+      if (tool) this.chooseTool(tool);
     });
 
     // L'autosave e' ritardato: chiudendo la scheda subito dopo una modifica,
@@ -556,91 +544,9 @@ export class LevelEditor {
     return col >= GRID.drawFrom && col <= GRID.drawTo && row >= GRID.drawFrom && row <= GRID.drawTo;
   }
 
-  // ------------------------------------------------------------ riempimento
-
-  /**
-   * Riempimento a rettangolo: si trascina come la selezione, e al rilascio
-   * tutte le celle dentro prendono il blocco scelto nella palette.
-   *
-   * Prima era un riempimento per contiguita' (il secchiello classico). E'
-   * stato cambiato dopo averlo usato: su una griglia quasi vuota il secchiello
-   * riempie tutto quello che tocca, che e' spettacolare e quasi mai quello che
-   * si voleva. Il rettangolo dice esattamente dove finisce.
-   *
-   * Come per la selezione il rettangolo e' una figura **sullo schermo**, quindi
-   * in isometrica copre un rombo di celle: si riempie quello che ci si vede
-   * dentro mentre lo si trascina.
-   */
-  private applyFill(): void {
-    const cells = this.cellsInRect();
-    this.rectFrom = null;
-    this.fillPreview.clear();
-    if (cells.length === 0) return;
-
-    for (const { col, row } of cells) {
-      // Prima si toglie: `spawn` rifiuta una cella occupata, e riempire
-      // sopra a qualcosa deve sostituirlo, non lasciarlo com'era.
-      this.placement.remove(col, row);
-      this.placement.spawn(col, row);
-    }
-    this.refresh();
-  }
-
-  /**
-   * Le celle il cui centro cade dentro il rettangolo tracciato.
-   *
-   * Si passano in rassegna tutte le celle della griglia disegnata: sono 625,
-   * cioe' niente, e cosi' il criterio e' identico a quello della selezione —
-   * il centro visibile dentro il rettangolo visibile — senza dover invertire
-   * la proiezione sugli angoli.
-   */
-  private cellsInRect(): { col: number; row: number }[] {
-    if (!this.rectFrom) return [];
-
-    const rect = new Phaser.Geom.Rectangle(
-      Math.min(this.rectFrom.x, this.rectTo.x),
-      Math.min(this.rectFrom.y, this.rectTo.y),
-      Math.abs(this.rectTo.x - this.rectFrom.x),
-      Math.abs(this.rectTo.y - this.rectFrom.y),
-    );
-
-    const lift = this.scene.activeElevationY;
-    const out: { col: number; row: number }[] = [];
-    for (let row = GRID.drawFrom; row <= GRID.drawTo; row++) {
-      for (let col = GRID.drawFrom; col <= GRID.drawTo; col++) {
-        const c = GridPlacement.cellToWorld(col, row);
-        if (rect.contains(c.x, c.y + lift)) out.push({ col, row });
-      }
-    }
-    return out;
-  }
-
-  private drawFillPreview(): void {
-    const g = this.fillPreview;
-    g.clear();
-    if (!this.rectFrom) return;
-
-    const rect = new Phaser.Geom.Rectangle(
-      Math.min(this.rectFrom.x, this.rectTo.x),
-      Math.min(this.rectFrom.y, this.rectTo.y),
-      Math.abs(this.rectTo.x - this.rectFrom.x),
-      Math.abs(this.rectTo.y - this.rectFrom.y),
-    );
-    g.lineStyle(1, FILL_COLOR, 0.9).strokeRectShape(rect);
-
-    // Le celle che verranno riempite, non solo il rettangolo: in isometrica il
-    // rettangolo da solo non dice quali rombi prende.
-    const lift = this.scene.activeElevationY;
-    g.fillStyle(FILL_COLOR, 0.25);
-    for (const { col, row } of this.cellsInRect()) {
-      const outline = projection.cellOutline(col, row).map((pt) => ({ x: pt.x, y: pt.y + lift }));
-      g.fillPoints(outline, true);
-    }
-  }
-
   private deleteSelection(): void {
     if (this.selection.count === 0) return;
-    this.edit(() => this.selection.deleteSelected());
+    this.edit(() => this.selection.clearArea());
   }
 
   // -------------------------------------------------------------- appunti
@@ -660,7 +566,7 @@ export class LevelEditor {
     this.clipboard = blocks.map((b) => ({ ...b, col: b.col - minCol, row: b.row - minRow }));
     this.clipboardOrigin = { col: minCol, row: minRow };
 
-    if (cut) this.edit(() => this.selection.deleteSelected());
+    if (cut) this.edit(() => this.selection.clearArea());
     else this.refresh();
   }
 
@@ -792,29 +698,50 @@ export class LevelEditor {
   /**
    * Rende attivo un layer.
    *
-   * Un layer nascosto diventa visibile quando lo si seleziona: se restasse
-   * spento si disegnerebbe su qualcosa che non si vede, e ogni pennellata
-   * sembrerebbe non fare niente. La regola e' che **il layer attivo si vede
-   * sempre**, e per questo il suo occhio e' disabilitato.
+   * Nascondere un layer e' una decisione che resta: selezionarlo non lo
+   * riaccende, e l'unico modo di rivederlo e' il suo occhio. Prima si
+   * riaccendeva da solo, per non far disegnare alla cieca, ma significava che
+   * un layer nascosto tornava visibile appena lo si sfiorava — cioe' che la
+   * decisione di nasconderlo non teneva.
+   *
+   * Il prezzo e' che si puo' dipingere su un piano spento. La riga del pannello
+   * lo dice, sbiadita e con l'occhio sbarrato.
    */
   private selectLayer(index: number): void {
     if (index < 0 || index >= this.placement.layers.length) return;
 
     this.placement.activeLayer = index;
-    if (!this.placement.layers[index]!.visible) this.placement.setLayerVisible(index, true);
     // La selezione appartiene al layer su cui e' stata fatta.
     this.selection.clear();
     this.refresh();
+  }
+
+  /**
+   * Cosa succede premendo un pulsante-strumento.
+   *
+   * Con una selezione in mano, pennello e gomma **non cambiano strumento**:
+   * riempiono o svuotano l'area. E' la richiesta di chi lo usa — si sceglie il
+   * terreno da modificare e poi si dice cosa farci — e l'etichetta del pulsante
+   * cambia di conseguenza, cosi' non c'e' una doppia funzione nascosta.
+   *
+   * La selezione resta dopo l'operazione: quasi sempre si vuole riprovare con
+   * un altro blocco. Per liberarla c'e' Esc.
+   */
+  private chooseTool(tool: Tool): void {
+    if (this.selection.count > 0 && (tool === 'brush' || tool === 'erase')) {
+      this.edit(() => {
+        if (tool === 'brush') this.selection.fillArea(this.placement.selected);
+        else this.selection.clearArea();
+      });
+      return;
+    }
+    this.setTool(tool);
   }
 
   private setTool(tool: Tool): void {
     this.tool = tool;
     if (tool === 'select') this.selection.show();
     else this.selection.hide();
-    // Un rettangolo di riempimento a meta' non deve restare disegnato addosso
-    // allo strumento successivo.
-    this.rectFrom = null;
-    this.fillPreview.clear();
     this.refresh();
   }
 
@@ -947,6 +874,8 @@ export class LevelEditor {
       #layer-panel .head button { min-height: 32px; padding: 0 10px; }
       #layer-panel .list { display: flex; flex-direction: column-reverse; gap: 4px; }
       #layer-panel .row { display: flex; align-items: center; gap: 4px; }
+      /* Un layer spento si vede che e' spento anche quando e' quello attivo. */
+      #layer-panel .row.spento .name { opacity: .45; font-style: italic; }
       #layer-panel .row button { min-height: 34px; padding: 0 6px; }
       #layer-panel .row .name {
         flex: 1 1 auto; text-align: left; overflow: hidden;
@@ -963,6 +892,7 @@ export class LevelEditor {
          sono sei, si imparano subito, e liberano due righe. */
       @media (max-width: 600px) {
         #editor-toolbar .tools .txt { display: none; }
+        #editor-toolbar .tools button.azione .txt { display: inline; }
         #editor-toolbar .tools button { padding: 0 12px; font-size: 17px; }
         #editor-toolbar button, #layer-panel button, #level-tabs button { min-height: 38px; }
         /* Il nome del layer porta anche il conteggio dei blocchi: stringendo
@@ -992,7 +922,7 @@ export class LevelEditor {
         this.placement.selected = block.id;
         // Scegliere un blocco significa volerlo piazzare: con la gomma attiva
         // il clic successivo cancellerebbe, che non e' quello che si intende.
-        if (this.tool === 'erase') this.setTool('brush');
+        if (this.tool === 'erase' && this.selection.count === 0) this.setTool('brush');
         else this.refresh();
       };
       strip.appendChild(b);
@@ -1005,7 +935,7 @@ export class LevelEditor {
     this.root.appendChild(tools);
     for (const tool of TOOLS) {
       const [icon, text] = TOOL_LABELS[tool];
-      this.toolButtons.set(tool, this.iconButton(icon, text, () => this.setTool(tool), tools));
+      this.toolButtons.set(tool, this.iconButton(icon, text, () => this.chooseTool(tool), tools));
     }
     // Copia, taglia e incolla stanno anche come pulsanti: su telefono il Ctrl
     // non c'e', e sarebbero funzioni raggiungibili solo da tastiera.
@@ -1169,11 +1099,6 @@ export class LevelEditor {
     this.button('✎', () => this.renameActiveLayer(), actions).title = 'Rinomina il layer attivo';
     this.button('🗑', () => void this.deleteActiveLayer(), actions).title = 'Elimina il layer attivo';
 
-    const hint = document.createElement('div');
-    hint.className = 'hint';
-    hint.textContent = 'Si disegna solo sul layer attivo. [ e ] cambiano piano.';
-    this.layerPanel.appendChild(hint);
-
     document.body.appendChild(this.layerPanel);
   }
 
@@ -1223,13 +1148,14 @@ export class LevelEditor {
       const row = document.createElement('div');
       row.className = 'row';
 
+      // L'occhio funziona su tutti, attivo compreso: se il layer attivo non
+      // potesse riaccendersi, nasconderlo sarebbe una trappola senza uscita.
       const eye = this.button(layer.visible ? '👁' : '🚫', () => {
         this.placement.setLayerVisible(index, !layer.visible);
         this.refresh();
       }, row);
-      // Il layer attivo si vede sempre: spegnerlo darebbe un pennello cieco.
-      eye.disabled = active;
-      eye.title = active ? 'Il layer attivo resta sempre visibile' : 'Mostra o nascondi';
+      eye.title = layer.visible ? 'Nascondi questo layer' : 'Mostra questo layer';
+      if (!layer.visible) row.classList.add('spento');
 
       const name = this.button(`${layer.name} (${this.placement.countOn(index)})`, () => this.selectLayer(index), row);
       name.className = 'name';
@@ -1283,13 +1209,27 @@ export class LevelEditor {
   private refresh(): void {
     const selected = this.selection.count;
     this.countLabel.textContent =
-      selected > 0 ? `${selected} selezionati / ${this.placement.count}` : `${this.placement.count} blocchi`;
+      selected > 0
+        ? `area: ${selected} celle, ${this.selection.blockCount} blocchi`
+        : `${this.placement.count} blocchi`;
 
     for (const [type, button] of this.paletteButtons) {
       button.setAttribute('aria-pressed', String(this.placement.selected === type));
     }
     for (const [tool, button] of this.toolButtons) {
       button.setAttribute('aria-pressed', String(this.tool === tool));
+
+      // Con una selezione in mano pennello e gomma diventano azioni sull'area:
+      // il pulsante lo dice invece di cambiare comportamento in silenzio.
+      const area = selected > 0 ? AREA_LABELS[tool] : undefined;
+      const [icon, text] = area ?? TOOL_LABELS[tool];
+      button.querySelector('.ico')!.textContent = icon;
+      button.querySelector('.txt')!.textContent = text;
+      button.title = text;
+      // Su schermo stretto gli strumenti sono sole icone. Questi due pero'
+      // hanno appena cambiato mestiere, e un'icona diversa non basta a dirlo:
+      // la parola torna visibile proprio quando serve.
+      button.classList.toggle('azione', area !== undefined);
     }
     this.undoButton.disabled = this.undoStack.length === 0;
     this.redoButton.disabled = this.redoStack.length === 0;

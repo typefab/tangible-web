@@ -68,25 +68,36 @@ Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
 **Disegnare**
 
 - la fila in alto nella barra e' la **palette**: scegli il blocco da piazzare
-- **🖌 Pennello** (`B`) piazza, anche trascinando; **🧽 Gomma** (`E`) cancella
-- **🪣 Riempi** (`G`) si trascina come la selezione: traccia un rettangolo e
-  tutte le celle dentro prendono il blocco scelto, sostituendo quello che c'era
+- **🖌 Pennello** (`B`) piazza, anche trascinando; **🧽 Gomma** (`E`) cancella.
+  Con un'area selezionata questi due agiscono sull'area — vedi sotto
 - **↶ / ↷** annullano e rifanno (`Ctrl+Z`, `Ctrl+Shift+Z`); un trascinamento
   intero conta come un solo passo
 - **Griglia: on/off** nasconde le linee per guardare la scena pulita; lo snap
   resta comunque attivo
 - **▶ Gioca** esce dall'editor
 
-**Selezionare** — **⬚ Seleziona** (`S`)
+**Selezionare un'area** — **⬚ Seleziona** (`S`)
 
 Trascini dal punto dove appoggi il dito, il rettangolo si allarga seguendoti, e
-al rilascio resta selezionato tutto quello che ci e' finito dentro. Come in
-GDevelop.
+al rilascio resta selezionata l'area che ci e' finita dentro. Come in GDevelop.
 
-- **trascina dentro la selezione** per spostarla, di cella in cella
+**La selezione e' un'area di celle, non un insieme di blocchi**: prende anche le
+celle vuote, ed e' quello che ti permette di riempirle.
+
+Con un'area selezionata i due strumenti cambiano mestiere, e te lo dicono:
+
+| Pulsante | Cosa fa |
+|---|---|
+| **🖌 Riempi area** | mette il blocco scelto in **tutte** le celle dell'area, coprendo quello che c'era |
+| **🧽 Svuota area** | toglie tutto quello che c'e' nell'area |
+
+Poi:
+
+- **trascina dentro la selezione** per spostare i blocchi, di cella in cella
 - **⧉ Copia** (`Ctrl+C`), **✂ Taglia** (`Ctrl+X`), **📥 Incolla** (`Ctrl+V`)
-- **🗑 Cancella** o il tasto `Canc` elimina i blocchi selezionati
-- `Esc` annulla la selezione
+- **🗑** o `Canc` svuota l'area, che pero' **resta selezionata**: dopo aver
+  svuotato quasi sempre vuoi riempire con altro
+- `Esc` libera la selezione, e i pulsanti tornano a essere strumenti
 
 L'incolla atterra **sotto il puntatore**, sul layer attivo, e quello che arriva
 resta selezionato: puoi trascinarlo subito dove vuoi. Gli appunti sopravvivono al
@@ -104,8 +115,8 @@ in cima all'elenco e' quello disegnato davanti.
 
 - **tocca il nome** per renderlo attivo: si disegna **solo** sul layer attivo
 - `[` e `]` cambiano piano da tastiera
-- **👁** accende e spegne un layer. Quello attivo resta sempre acceso, altrimenti
-  dipingeresti alla cieca
+- **👁** accende e spegne un layer, e la scelta **tiene**: un layer nascosto
+  resta nascosto anche se lo selezioni. L'unico modo di rivederlo e' l'occhio
 - **↑n** e' la **quota**: `↑0` e' un piano piatto, sovrapposto in loco — cioe' il
   layer di GDevelop. Da `↑1` in su il piano si alza di una cella, e ci costruisci
   **sopra** al piano di sotto
@@ -198,8 +209,8 @@ quindi da `public/` servirebbe un elenco scritto a mano.
 - **Piu' livelli in un file solo**, con le schede nell'editor e `?level=` in gioco
 - **Salvataggio locale con conferma**: l'editor ricorda, ma chiede sempre prima
   di ripristinare
-- **Selezione a rettangolo**, con spostamento, copia/taglia/incolla ed eliminazione
-- **Riempimento a rettangolo**, anche fra layer e schede
+- **Selezione a rettangolo** come area: riempimento, svuotamento, spostamento,
+  copia/taglia/incolla anche fra schede
 - **Due dita** per spostarsi e ingrandire, in qualsiasi strumento
 
 Dettagli, verifiche e rischi aperti stanno in [PIANO.md](PIANO.md).
