@@ -1,7 +1,7 @@
 # Piano di lavoro — Tangible Cushion
 
 Documento di riferimento su scelte di architettura, stato e prossimi passi.
-Ultimo aggiornamento: 9 agosto 2026.
+Ultimo aggiornamento: 10 agosto 2026.
 
 ---
 
@@ -225,16 +225,40 @@ Due dettagli che sembrano piccoli e non lo sono:
 - **lo zoom e' ancorato al punto sotto le dita**, non al centro dello schermo,
   altrimenti ogni ingrandimento richiede un riposizionamento.
 
-### Selezione
+### La selezione e' un'area, non un insieme di blocchi
 
-Rettangolo elastico, come in GDevelop: si trascina, si allarga, al rilascio
-seleziona. Poi la selezione si trascina per spostarla, o si cancella con `Canc`.
+E' la decisione che tiene insieme mezzo editor, ed e' arrivata in due passi.
 
-Il test di appartenenza usa la posizione dello **sprite**, non il centro della
-cella: su un layer con quota i due punti non coincidono, e chi seleziona si
-aspetta di prendere quello che vede. Per la stessa ragione il rettangolo resta
-una figura di schermo, quindi su griglia isometrica copre un rombo di celle —
-ed e' giusto cosi', perche' e' quello che si vede mentre lo si trascina.
+Prima la selezione raccoglieva i blocchi dentro il rettangolo, e c'era uno
+strumento separato — il secchiello — per riempire. Poi il secchiello e' passato
+da contiguita' a rettangolo, e a quel punto **faceva lo stesso gesto della
+selezione**: due strumenti, un gesto solo, e la differenza da spiegare.
+
+Ora la selezione raccoglie **celle**, vuote comprese, e sono pennello e gomma ad
+agire sull'area:
+
+| Con una selezione in mano | Fa |
+|---|---|
+| 🖌 Pennello | riempie tutte le celle dell'area col blocco scelto |
+| 🧽 Gomma | svuota l'area |
+
+Il secchiello e' sparito, e con lui un concetto. Il pennello e la gomma
+**cambiano etichetta** quando c'e' una selezione — "Riempi area", "Svuota area" —
+perche' un pulsante che fa due cose diverse a seconda dello stato deve dire
+quale delle due sta per fare.
+
+Conseguenze che non erano ovvie:
+
+- **svuotare non annulla la selezione.** L'area resta in mano: dopo aver
+  svuotato, quasi sempre si vuole riempire con qualcos'altro.
+- si puo' riempire **terreno vuoto**, cosa che con una selezione di soli blocchi
+  sarebbe stata impossibile — ed era il motivo per cui esisteva il secchiello.
+- `count` conta celle e `blockCount` conta blocchi: nella barra si legge quanti
+  blocchi ci sono nell'area, non quante celle.
+
+Il test di appartenenza usa il **centro della cella** dentro il rettangolo di
+schermo, alla quota del layer attivo. Per le stesse ragioni di prima: su griglia
+isometrica si prende il rombo che si vede.
 
 Lo spostamento toglie tutti i blocchi di partenza **prima** di ripiazzarli:
 facendolo uno alla volta, spostare una fila di uno a destra cancellerebbe il
@@ -244,28 +268,22 @@ Gli **appunti** tengono i blocchi in coordinate relative al loro angolo, non
 assolute: solo cosi' un incolla puo' atterrare su un'altra cella, un altro layer
 o un'altra scheda mantenendo la forma. Vivono in memoria e non nel progetto
 salvato — sopravvivono al cambio di scheda, che e' il caso che conta, ma non a
-una ricarica.
+una ricarica. L'incolla atterra **sotto il puntatore** e non dove stava
+l'originale: incollare sopra se stesso sembra non aver fatto niente.
 
-L'incolla atterra **sotto il puntatore** e non dove stava l'originale: incollare
-sopra se stesso sembra non aver fatto niente. Quello che arriva resta
-selezionato, pronto da trascinare.
+### Nascondere un layer e' una decisione che tiene
 
-### Riempimento: rettangolo, non contiguita'
+All'inizio selezionare un layer nascosto lo riaccendeva, per non far disegnare
+alla cieca. Provandolo e' emerso il difetto: **la decisione di nascondere non
+teneva**, bastava sfiorare il layer e tornava visibile.
 
-Il secchiello era un riempimento per contiguita', quello classico. **E' stato
-cambiato dopo averlo usato**: su una griglia quasi vuota il secchiello riempie
-tutto quello che tocca, il che e' spettacolare e quasi mai quello che si voleva.
-Ora si trascina un rettangolo come per la selezione, e si riempie quello.
+Ora nascondere e' appiccicoso, e l'occhio funziona su tutti i layer — attivo
+compreso. Quell'ultima parte non e' un dettaglio: se l'occhio del layer attivo
+restasse bloccato, nasconderlo sarebbe una trappola senza uscita, perche' per
+riaccenderlo bisognerebbe selezionarlo e selezionandolo diventa attivo.
 
-Il criterio di appartenenza e' lo stesso della selezione — il centro della cella
-dentro il rettangolo di schermo — quindi in isometrica si riempie il rombo che
-si vede, non un blocco di righe e colonne. L'anteprima colora le celle mentre
-trascini, perche' il solo rettangolo non direbbe quali rombi prende.
-
-Implementazione ingenua di proposito: si passano in rassegna tutte le 625 celle
-della griglia disegnata invece di invertire la proiezione sugli angoli. A queste
-dimensioni non si misura, ed evita un secondo pezzo di geometria da tenere
-d'accordo col primo.
+Il prezzo accettato e' che si puo' dipingere su un piano spento. La riga del
+pannello lo dice: nome sbiadito in corsivo e occhio sbarrato.
 
 ### I test guidano il gioco vero
 
@@ -317,7 +335,7 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Formato progetto | `level/project.ts` | piu' livelli in un file, normalizzazione dei formati vecchi |
 | Salvataggio locale | `editor/EditorStorage.ts` | autosave e Salva, con `dialog.ts` per la domanda all'apertura |
 | Gesti | `editor/CameraGestures.ts` | pan e pinch a due dita, zoom ancorato al dito |
-| Selezione | `editor/SelectionTool.ts` | rettangolo, spostamento, eliminazione |
+| Selezione ad area | `editor/SelectionTool.ts` | rettangolo, riempimento, svuotamento, spostamento, appunti |
 | Apertura file | `editor/LevelEditor.ts` | legge un `level.json` dal dispositivo, annullabile |
 | Test | `test/`, `playwright.config.ts` | 39 test sul gioco che gira, in CI a ogni push |
 

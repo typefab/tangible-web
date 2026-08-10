@@ -33,7 +33,10 @@ export interface EditorState {
   layer: { nome: string; quota: number; visibile: boolean; blocchi: number }[];
   schede: string[];
   schedaAttiva: number;
+  /** Celle selezionate, vuote comprese. */
   selezionati: number;
+  /** Quante di quelle celle hanno un blocco. */
+  selBlocchi: number;
   stato: string;
   dialogo: string | null;
   inMemoria: boolean;
@@ -58,6 +61,7 @@ export function state(page: Page): Promise<EditorState> {
       schede: tabs.map((b) => b.textContent ?? ''),
       schedaAttiva: tabs.findIndex((b) => b.getAttribute('aria-pressed') === 'true'),
       selezionati: e?.selection.count ?? 0,
+      selBlocchi: e?.selection.blockCount ?? 0,
       stato: document.querySelector('#editor-toolbar .status')?.textContent ?? '',
       dialogo: document.querySelector('#editor-dialog h2')?.textContent ?? null,
       inMemoria: !!localStorage.getItem('tangible-web:editor:v1'),
