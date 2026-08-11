@@ -79,6 +79,23 @@ const TOOL_KEYS: Record<string, Tool> = {
 const UNDO_LIMIT = 60;
 
 /**
+ * Quando l'editor si stringe: comandi rari dietro ⋯ e pannello layer chiuso.
+ *
+ * **Due condizioni, non una.** La prima versione guardava solo la larghezza, e
+ * un telefono girato la mancava in pieno: 780x390 e' largo, quindi teneva la
+ * barra intera — 195px su 390 di altezza, con il pannello dei layer aperto
+ * sopra quel poco che restava: il 62% dello schermo occupato dai comandi.
+ *
+ * La barra consuma **altezza**, ed e' quella la misura giusta. La larghezza
+ * serve solo a riconoscere il telefono in verticale, dove di altezza ce n'e'
+ * ma non c'e' spazio per le parole.
+ *
+ * Una stringa sola perche' la usano sia il CSS sia `matchMedia`: e' lo stesso
+ * vincolo, e due copie prima o poi divergono.
+ */
+const COMPATTO = '(max-width: 600px), (max-height: 600px)';
+
+/**
  * Quanto va tenuto premuto un blocco perche' il contagocce lo prenda.
  *
  * Mezzo secondo e' la soglia di fatto delle tastiere di sistema: piu' corta si
@@ -1001,7 +1018,7 @@ export class LevelEditor {
         font-size: 10px; opacity: .8; max-width: 100%;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
-      /* Sopra i 600px il foglio e' una riga come le altre e ⋯ non serve. */
+      /* Dove lo spazio c'e', il foglio e' una riga come le altre e ⋯ non serve. */
       #editor-toolbar .menu { display: none; }
       #editor-toolbar .sep { width: 1px; align-self: stretch; background: #3a3a48; }
       #editor-toolbar .spacer { flex: 1 1 auto; }
@@ -1052,10 +1069,10 @@ export class LevelEditor {
       #layer-panel.collapsed .list, #layer-panel.collapsed .actions { display: none; }
       #layer-panel .hint { font-size: 11px; opacity: .6; }
 
-      /* Su telefono la barra a parole occupava il 44% dello schermo, cioe' piu'
-         della scena che si sta costruendo. Gli strumenti restano solo icone:
-         sono sei, si imparano subito, e liberano due righe. */
-      @media (max-width: 600px) {
+      /* Schermo stretto o basso: vedi COMPATTO. La barra a parole occupava il
+         44% di un telefono, cioe' piu' della scena che si sta costruendo. Gli
+         strumenti restano solo icone: sono sei, si imparano subito. */
+      @media ${COMPATTO} {
         #editor-toolbar .tools .txt { display: none; }
         #editor-toolbar .tools button.azione .txt { display: inline; }
         #editor-toolbar .tools button { padding: 0 12px; font-size: 17px; }
@@ -1072,6 +1089,21 @@ export class LevelEditor {
            la riga invece del pannello, non viene tagliato. */
         #layer-panel .row button { padding: 0 4px; }
         #layer-panel .row .quota { font-size: 12px; }
+      }
+
+      /* Schermo basso ma largo: il telefono girato.
+         Li' impilare le righe e' lo spreco: di altezza non ce n'e' e di
+         larghezza avanza. Le tre righe vanno in fila e la barra passa da 171 a
+         una riga sola; la palette prende quello che resta e scorre, come ha
+         sempre fatto. Se non ci sta, il wrap la rimanda a capo da sola e si
+         torna al comportamento di prima invece di rompersi. */
+      @media (max-height: 600px) and (min-width: 600px) {
+        #editor-toolbar { flex-direction: row; flex-wrap: wrap; align-items: center; }
+        #editor-toolbar .palette-strip { flex: 1 1 160px; min-width: 0; }
+        #editor-toolbar .controls { flex: 0 0 auto; }
+        /* Il foglio aperto resta una riga tutta sua: e' l'unico momento in cui
+           serve spazio, e dura il tempo di un comando. */
+        #editor-toolbar .sheet { flex: 1 1 100%; }
       }
     `;
   }
@@ -1277,11 +1309,15 @@ export class LevelEditor {
     }, head);
     collapse.title = 'Comprimi il pannello';
 
-    // E su telefono parte gia' chiuso: aperto occupa 228x168 sopra la scena,
-    // proprio l'angolo in cui l'origine isometrica mette i primi blocchi —
-    // si costruiva sotto un pannello. Su schermo largo lo spazio c'e', e
-    // aprirlo ogni volta sarebbe un tocco in piu' per niente.
-    if (window.matchMedia('(max-width: 600px)').matches) {
+    // Dove lo schermo e' stretto o basso parte gia' chiuso: aperto occupa
+    // 228x168 sopra la scena, proprio l'angolo in cui l'origine isometrica
+    // mette i primi blocchi — si costruiva sotto un pannello. Dove lo spazio
+    // c'e', aprirlo ogni volta sarebbe un tocco in piu' per niente.
+    //
+    // Si guarda una volta sola, all'apertura: girare il telefono dopo non lo
+    // richiude d'autorita', perche' a quel punto aperto o chiuso l'ha deciso
+    // chi lo sta usando.
+    if (window.matchMedia(COMPATTO).matches) {
       this.layerPanel.classList.add('collapsed');
       collapse.textContent = '▸';
     }

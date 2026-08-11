@@ -323,10 +323,28 @@ Il criterio per decidere cosa resta in vista e' **quante volte si tocca**:
 |---|---|
 | palette, strumenti, annulla/rifai, zoom, ⤢, conteggio | griglia, Salva, Apri, Copia, Scarica, Gioca |
 
-Sono 171px invece di 289: **562px di scena invece di 444**. Sopra i 600px non
-cambia niente — il foglio resta una riga come le altre e ⋯ non compare
-nemmeno — perche' li' lo spazio c'e' e un tocco in piu' per arrivare a Salva
-sarebbe solo un peggioramento.
+Sono 171px invece di 289: **562px di scena invece di 444**. Dove lo spazio c'e'
+non cambia niente — il foglio resta una riga come le altre e ⋯ non compare
+nemmeno — perche' li' un tocco in piu' per arrivare a Salva sarebbe solo un
+peggioramento.
+
+**La soglia sbagliata, corretta dopo la prima prova su un telefono vero.** La
+regola guardava la larghezza: `max-width: 600px`. Un telefono **girato** la
+mancava in pieno, perche' 780x390 e' "schermo largo" — restava la barra intera
+su uno schermo alto 390, col pannello dei layer aperto sopra il poco che
+avanzava. La barra consuma **altezza**, ed e' quella la misura giusta:
+
+| | Barra + schede | Scena |
+|---|---|---|
+| 780x390, prima | 62% | 148px |
+| 780x390, con la soglia sull'altezza | 56% | 172px |
+| 780x390, **con le righe in fila** | **32%** | **264px** |
+
+Il secondo passo e' la conseguenza del primo: girato, il telefono ha larghezza
+in abbondanza e non ha altezza, quindi impilare le righe e' esattamente lo
+spreco da evitare. In fila stanno in una riga sola, 79px invece di 195, e la
+palette prende lo spazio che resta — se non ci sta va a capo da sola, tornando
+al comportamento di prima invece di rompersi.
 
 Tre dettagli che non erano ovvi:
 
@@ -407,7 +425,7 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Selezione ad area | `editor/SelectionTool.ts` | rettangolo, riempimento, svuotamento, spostamento, appunti |
 | Contagocce | `editor/LevelEditor.ts` | tocco lungo o Alt+clic, con la pennellata disfatta |
 | Apertura file | `editor/LevelEditor.ts` | legge un `level.json` dal dispositivo, annullabile |
-| Test | `test/`, `playwright.config.ts` | 64 test sul gioco che gira, in CI a ogni push |
+| Test | `test/`, `playwright.config.ts` | 67 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
