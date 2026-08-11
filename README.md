@@ -70,11 +70,18 @@ Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
 - la fila in alto nella barra e' la **palette**: scegli il blocco da piazzare
 - **🖌 Pennello** (`B`) piazza, anche trascinando; **🧽 Gomma** (`E`) cancella.
   Con un'area selezionata questi due agiscono sull'area — vedi sotto
+- **tieni premuto su un blocco** per riprendere il suo tipo, senza cercarlo
+  nella palette: mezzo secondo e diventa quello scelto, e la palette lampeggia
+  per dirtelo. Se stavi dipingendo, quella pennellata viene disfatta — stavi
+  indicando quel blocco, non coprendolo. Da computer c'e' anche **Alt+clic**
 - **↶ / ↷** annullano e rifanno (`Ctrl+Z`, `Ctrl+Shift+Z`); un trascinamento
   intero conta come un solo passo
 - **Griglia: on/off** nasconde le linee per guardare la scena pulita; lo snap
   resta comunque attivo
 - **▶ Gioca** esce dall'editor
+
+Il tocco lungo vale con **pennello e gomma**. Con ✋ e con la selezione no: li'
+tenere fermo il dito vuol gia' dire "sto per trascinare".
 
 **Selezionare un'area** — **⬚ Seleziona** (`S`)
 
@@ -141,6 +148,11 @@ Due cose diverse, e conviene tenerle distinte:
 |---|---|---|
 | **💾 Salva** (`Ctrl+S`) | salva **in questo browser** | mentre lavori |
 | **⬇ Scarica** | scarica `level.json` | quando vuoi portarlo nel gioco |
+
+Su telefono questi due, insieme a **📂 Apri**, **📋 Copia**, **Griglia** e
+**▶ Gioca**, stanno dietro **⋯**: sono comandi da una volta a serata, e tenerli
+sempre in vista costava un terzo dello schermo. Se **⋯** ha un pallino giallo,
+c'e' lavoro non salvato la' dentro. Su schermo largo sono tutti in barra.
 
 L'editor salva da solo mentre costruisci, ma **non decide mai da solo cosa
 tenere**. Se chiudi senza salvare e riapri, ti chiede: *riprendi* il lavoro
@@ -213,6 +225,9 @@ quindi da `public/` servirebbe un elenco scritto a mano.
 - **Selezione a rettangolo** come area: riempimento, svuotamento, spostamento,
   copia/taglia/incolla anche fra schede
 - **Due dita** per spostarsi e ingrandire, in qualsiasi strumento
+- **Contagocce**: tieni premuto un blocco e il suo tipo torna in mano
+- **Barra pensata per il telefono**: i comandi rari stanno dietro **⋯**, e alla
+  scena resta piu' di due terzi dello schermo
 
 Dettagli, verifiche e rischi aperti stanno in [PIANO.md](PIANO.md).
 

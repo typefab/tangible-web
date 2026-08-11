@@ -271,6 +271,45 @@ salvato — sopravvivono al cambio di scheda, che e' il caso che conta, ma non a
 una ricarica. L'incolla atterra **sotto il puntatore** e non dove stava
 l'originale: incollare sopra se stesso sembra non aver fatto niente.
 
+### Il contagocce, e il tratto che era gia' partito
+
+Riprendere un blocco gia' posato voleva dire ritrovarlo nella palette. Con due
+sprite non e' un problema; e' il tipo di attrito che cresce da solo, e la
+palette e' fatta apposta per crescere.
+
+Il gesto e' **tenere premuto mezzo secondo** su un blocco, piu' `Alt+clic` da
+computer. Non e' un nuovo strumento: uno strumento in piu' e' una modalita' in
+piu' da spegnere, e questo e' un gesto che si fa **dentro** il pennello, mentre
+si dipinge.
+
+Il problema vero non e' riconoscere il tocco lungo: e' che a mezzo secondo **il
+pennello ha gia' dipinto**. La cella sotto il dito contiene ormai il blocco che
+si stava piazzando, non quello che si voleva prendere. Da qui due conseguenze:
+
+- **il tipo si legge quando il dito scende**, non quando scatta il contagocce;
+- **il tratto viene disfatto**, con lo stesso meccanismo che gia' annullava la
+  pennellata quando arriva il secondo dito per un pinch. Era scritto dentro il
+  gestore del pinch: ora e' `cancelStroke()`, e i due gesti condividono la
+  risposta invece di averne due.
+
+Dove il gesto **non** si attiva, ed e' la parte che si sarebbe sbagliata:
+
+| Strumento | Perche' |
+|---|---|
+| 🖌 Pennello, 🧽 Gomma | si attiva: il dito fermo li' non significa niente |
+| ✋ Sposta, ⬚ Seleziona | no: tenere fermo vuol gia' dire "sto per trascinare" |
+| su cella vuota | non si arma nemmeno: non c'e' niente da prendere, e disfare il tratto cancellerebbe il blocco appena messo |
+
+Con la gomma in mano il contagocce passa al pennello, per la stessa regola della
+palette: indicare un blocco significa volerlo piazzare.
+
+**Un difetto trovato dai test, che c'era gia'.** `restore()` marca sempre il
+lavoro come "non salvato", perche' di solito lo chiama un undo. Ma le tracce
+annullate riportano la scena **identica** a com'era: dopo un contagocce — e
+anche dopo ogni pinch, da sempre — l'editor dichiarava modifiche che non
+esistevano. Ora chi annulla una traccia rimette anche lo stato di prima. Nessuno
+se n'era accorto perche' nell'uso normale si e' quasi sempre gia' "non salvato".
+
 ### Quanto schermo resta per costruire
 
 Su un telefono da 390x780 la barra a quattro righe occupava **289px, il 37%**, e
@@ -366,8 +405,9 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Salvataggio locale | `editor/EditorStorage.ts` | autosave e Salva, con `dialog.ts` per la domanda all'apertura |
 | Gesti | `editor/CameraGestures.ts` | pan e pinch a due dita, zoom ancorato al dito |
 | Selezione ad area | `editor/SelectionTool.ts` | rettangolo, riempimento, svuotamento, spostamento, appunti |
+| Contagocce | `editor/LevelEditor.ts` | tocco lungo o Alt+clic, con la pennellata disfatta |
 | Apertura file | `editor/LevelEditor.ts` | legge un `level.json` dal dispositivo, annullabile |
-| Test | `test/`, `playwright.config.ts` | 56 test sul gioco che gira, in CI a ogni push |
+| Test | `test/`, `playwright.config.ts` | 64 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
@@ -397,6 +437,11 @@ Test principali superati:
 - selezione: il rettangolo prende gli estremi e lascia fuori il blocco lontano;
   trascinandola si sposta di una cella e `Ctrl+Z` la rimette; `Canc` elimina
   esattamente i selezionati, ne' uno di piu' ne' uno di meno
+- contagocce: il tocco lungo prende il tipo **e disfa la pennellata** che il
+  tocco stesso aveva fatto — la cella resta com'era e il conteggio non cambia;
+  muovendo il dito e' un tratto e non scatta; su cella vuota non si arma;
+  con la gomma passa al pennello; con la selezione il dito fermo resta suo;
+  provato anche con eventi touch veri, non solo col mouse
 - ingombro della barra, misurato a 390x780 sull'editor che gira: la scena passa
   da 444 a 562px; ⋯ apre il foglio e un comando lo richiude, la griglia no; a
   foglio chiuso il pallino dice "non salvato"; **sopra i 600px non cambia
