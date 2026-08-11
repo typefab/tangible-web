@@ -12,6 +12,7 @@ import { CameraGestures, ZOOM_STEP } from './CameraGestures';
 import { SelectionTool, type Picked } from './SelectionTool';
 import { EditorStorage, describeWhen } from './EditorStorage';
 import { chooseDialog } from './dialog';
+import { LevelBrowser, type BrowserLevel } from './LevelBrowser';
 
 /**
  * Modalita' editor: si attiva aggiungendo ?editor=1 all'URL.
@@ -147,11 +148,24 @@ export class LevelEditor {
   private levels: SerializedLevel[] = [emptyLevel()];
   private activeLevelIndex = 0;
 
+  /**
+   * Gli indici dei livelli con una scheda aperta, nell'ordine in cui stanno in
+   * alto. Contiene sempre quello attivo, e non e' mai vuoto.
+   *
+   * E' lo stato dell'editor, non del progetto: non entra in `level.json`, che
+   * e' il file che legge il gioco e non deve portarsi dietro quali schede erano
+   * aperte mentre lo si costruiva.
+   */
+  private openLevels: number[] = [0];
+  private readonly browser: LevelBrowser;
+
   private undoStack: Snapshot[] = [];
   private redoStack: Snapshot[] = [];
 
   /** Modifiche successive all'ultimo Salva. */
   private dirty = false;
+  /** L'ultimo tentativo di scrittura e' fallito: quasi sempre quota piena. */
+  private saveFailed = false;
   private lastSavedAt: number | null = null;
 
   /** Traccia in corso: serve a non ripetere l'operazione sulla stessa cella. */
@@ -195,6 +209,14 @@ export class LevelEditor {
     this.placement = placement;
     this.gestures = new CameraGestures(scene);
     this.selection = new SelectionTool(scene, placement);
+    this.browser = new LevelBrowser({
+      levels: () => this.browserLevels(),
+      openLevel: (i) => this.openLevel(i),
+      createLevel: () => this.addLevel(),
+      duplicateLevel: (i) => this.duplicateLevel(i),
+      renameLevel: (i) => this.renameLevel(i),
+      deleteLevel: (i) => this.deleteLevel(i),
+    });
 
     this.buildToolbar();
     this.buildLevelTabs();
@@ -212,20 +234,39 @@ export class LevelEditor {
 
   // -------------------------------------------------- progetto e livelli
 
-  /** Il progetto intero, col livello aperto riletto dalla scena. */
+  /**
+   * Il progetto intero, col livello aperto riletto dalla scena.
+   *
+   * **I livelli fermi non si copiano, si condividono.** Prima ognuno veniva
+   * riclonato qui, e siccome questa funzione la chiama ogni snapshot dell'undo,
+   * il costo di una pennellata cresceva col numero di livelli del progetto: a
+   * 100 livelli erano 8,8ms e 2,1MB **per tratto**, per ricopiare 99 livelli
+   * che nessuno aveva toccato.
+   *
+   * Regge perche' un `SerializedLevel` non si modifica mai sul posto: si
+   * sostituisce. `serializeLayers()` costruisce sempre oggetti nuovi e
+   * `loadLayers()` legge soltanto, quindi il livello montato nella scena non
+   * puo' scrivere su quello memorizzato. Chi tocca un livello ne mette al suo
+   * posto un altro, e la cronologia continua a puntare al vecchio senza che
+   * nessuno glielo cambi sotto.
+   */
   private project(): SerializedProject {
-    const levels = this.levels.map((level, i) =>
-      i === this.activeLevelIndex
-        ? { name: level.name, layers: this.placement.serializeLayers() }
-        : clone(level),
-    );
+    const levels = this.levels.slice();
+    levels[this.activeLevelIndex] = {
+      name: this.levels[this.activeLevelIndex]!.name,
+      layers: this.placement.serializeLayers(),
+    };
     return { levels };
   }
 
   /** Sostituisce tutto il progetto e apre il livello indicato. */
-  private adopt(project: SerializedProject, levelIndex: number): void {
+  private adopt(project: SerializedProject, levelIndex: number, open?: number[]): void {
     this.levels = clone(project.levels);
     this.activeLevelIndex = Phaser.Math.Clamp(levelIndex, 0, this.levels.length - 1);
+    // Un progetto nuovo porta le sue schede o nessuna: quelle di prima
+    // puntavano a livelli che non esistono piu'.
+    this.openLevels = (open ?? []).filter((i) => i >= 0 && i < this.levels.length);
+    this.markOpen(this.activeLevelIndex);
     this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
     this.selection.clear();
     this.refresh();
@@ -239,10 +280,19 @@ export class LevelEditor {
    * potrebbe sparire.
    */
   private openLevel(index: number): void {
-    if (index === this.activeLevelIndex || index < 0 || index >= this.levels.length) return;
+    if (index < 0 || index >= this.levels.length) return;
+    // Aprire quello gia' aperto non e' un errore: dall'elenco e' il modo
+    // naturale di dire "torna li'". Non deve pero' costare un rimontaggio
+    // della scena, che a livello pieno si vede.
+    if (index === this.activeLevelIndex) {
+      this.markOpen(index);
+      this.refresh();
+      return;
+    }
 
     this.levels = this.project().levels;
     this.activeLevelIndex = index;
+    this.markOpen(index);
     this.placement.loadLayers(this.levels[index]!.layers);
     this.selection.clear();
     // La cronologia resta valida: gli snapshot contengono il progetto intero,
@@ -250,37 +300,103 @@ export class LevelEditor {
     this.touch();
   }
 
+  /**
+   * Chiude una scheda. **Non elimina il livello**: resta nell'elenco.
+   *
+   * E' la differenza che rende sopportabile un progetto da cento livelli: le
+   * schede sono i due o tre fra cui si sta andando avanti e indietro adesso, e
+   * chiuderne una deve costare quanto costa metter via un foglio.
+   *
+   * Una scheda resta sempre aperta, perche' la scena disegna sempre un livello:
+   * senza, l'editor si troverebbe a modificare qualcosa che non e' in nessuna
+   * scheda.
+   */
+  private closeLevel(index: number): void {
+    if (this.openLevels.length <= 1) return;
+
+    const position = this.openLevels.indexOf(index);
+    if (position < 0) return;
+    this.openLevels.splice(position, 1);
+
+    if (index === this.activeLevelIndex) {
+      // Si passa alla scheda che prende il suo posto, o all'ultima se era in
+      // fondo: e' dove finirebbe l'occhio.
+      const next = this.openLevels[Math.min(position, this.openLevels.length - 1)]!;
+      this.openLevel(next);
+      return;
+    }
+    this.refresh();
+  }
+
+  /** Aggiunge l'indice alle schede aperte, se non c'e' gia'. */
+  private markOpen(index: number): void {
+    if (!this.openLevels.includes(index)) this.openLevels.push(index);
+  }
+
+  /**
+   * Rimappa le schede aperte dopo un cambiamento nell'elenco dei livelli.
+   *
+   * Le schede sono indici, e inserire o togliere un livello sposta tutti quelli
+   * che vengono dopo. E' l'unico punto in cui quella contabilita' esiste: chi
+   * aggiunge un'operazione sul catalogo deve passare di qui, altrimenti le
+   * schede finiscono a puntare al livello sbagliato.
+   *
+   * @param remap indice vecchio -> indice nuovo, oppure null se sparisce.
+   */
+  private remapOpen(remap: (index: number) => number | null): void {
+    const mapped: number[] = [];
+    for (const index of this.openLevels) {
+      const next = remap(index);
+      if (next !== null && !mapped.includes(next)) mapped.push(next);
+    }
+    this.openLevels = mapped;
+  }
+
   private addLevel(): void {
     this.edit(() => {
       this.levels = this.project().levels;
       this.levels.push(emptyLevel(`Livello ${this.levels.length + 1}`));
+      // In fondo: nessun indice esistente si sposta.
       this.activeLevelIndex = this.levels.length - 1;
+      this.markOpen(this.activeLevelIndex);
       this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
       this.selection.clear();
     });
   }
 
-  private duplicateLevel(): void {
+  private duplicateLevel(index = this.activeLevelIndex): void {
+    if (index < 0 || index >= this.levels.length) return;
+
     this.edit(() => {
       this.levels = this.project().levels;
-      const source = this.levels[this.activeLevelIndex]!;
-      this.levels.splice(this.activeLevelIndex + 1, 0, {
+      const source = this.levels[index]!;
+      this.levels.splice(index + 1, 0, {
         name: `${source.name} (copia)`,
         layers: clone(source.layers),
       });
-      this.activeLevelIndex += 1;
+      // La copia entra subito dopo l'originale: tutto quello che stava dopo
+      // scala di uno.
+      this.remapOpen((i) => (i > index ? i + 1 : i));
+      this.activeLevelIndex = index + 1;
+      this.markOpen(this.activeLevelIndex);
+      this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
       this.selection.clear();
     });
   }
 
-  private renameLevel(): void {
-    const current = this.levels[this.activeLevelIndex]!.name;
+  private renameLevel(index = this.activeLevelIndex): void {
+    const current = this.levels[index]?.name;
+    if (current === undefined) return;
+
     const name = window.prompt('Nome del livello', current);
     if (name === null || name.trim() === '' || name.trim() === current) return;
 
     this.edit(() => {
       this.levels = this.project().levels;
-      this.levels[this.activeLevelIndex]!.name = name.trim();
+      // Sostituito, non modificato: quel livello sta anche negli snapshot gia'
+      // impilati, e scrivergli il nome addosso cambierebbe il passato.
+      const level = this.levels[index]!;
+      this.levels[index] = { name: name.trim(), layers: level.layers };
     });
   }
 
@@ -311,12 +427,15 @@ export class LevelEditor {
     this.edit(() => this.adopt(project, 0));
   }
 
-  private async deleteLevel(): Promise<void> {
-    if (this.levels.length <= 1) return;
+  private async deleteLevel(index = this.activeLevelIndex): Promise<void> {
+    if (this.levels.length <= 1 || index < 0 || index >= this.levels.length) return;
 
-    const level = this.levels[this.activeLevelIndex]!;
-    const blocks = this.placement.count;
-    const choice = await chooseDialog('Eliminare la scheda?', `"${level.name}" con ${blocks} blocchi.`, [
+    const level = this.levels[index]!;
+    const blocks =
+      index === this.activeLevelIndex
+        ? this.placement.count
+        : level.layers.reduce((n, layer) => n + layer.blocks.length, 0);
+    const choice = await chooseDialog('Eliminare il livello?', `"${level.name}" con ${blocks} blocchi.`, [
       { id: 'cancel', label: 'Annulla' },
       { id: 'delete', label: 'Elimina', detail: 'Si recupera con Ctrl+Z', danger: true },
     ] as const);
@@ -324,8 +443,17 @@ export class LevelEditor {
 
     this.edit(() => {
       this.levels = this.project().levels;
-      this.levels.splice(this.activeLevelIndex, 1);
-      this.activeLevelIndex = Math.min(this.activeLevelIndex, this.levels.length - 1);
+      this.levels.splice(index, 1);
+      // Quello eliminato sparisce dalle schede, quelli dopo scalano di uno.
+      this.remapOpen((i) => (i === index ? null : i > index ? i - 1 : i));
+
+      if (this.activeLevelIndex > index) this.activeLevelIndex -= 1;
+      else if (this.activeLevelIndex === index) {
+        this.activeLevelIndex = Math.min(index, this.levels.length - 1);
+      }
+      // Se si e' eliminato l'ultimo livello aperto, quello su cui si atterra
+      // prende comunque una scheda: la scena ne disegna sempre uno.
+      this.markOpen(this.activeLevelIndex);
       this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
       this.selection.clear();
     });
@@ -375,7 +503,7 @@ export class LevelEditor {
     );
 
     if (choice === 'resume') {
-      this.adopt(stored.project, stored.activeLevel);
+      this.adopt(stored.project, stored.activeLevel, stored.open);
       this.dirty = stored.dirty;
       this.lastSavedAt = stored.dirty ? null : stored.savedAt;
     } else {
@@ -388,12 +516,25 @@ export class LevelEditor {
   }
 
   private collectWork(dirty: boolean): Parameters<EditorStorage['write']>[0] {
-    return { dirty, activeLevel: this.activeLevelIndex, project: this.project() };
+    return {
+      dirty,
+      activeLevel: this.activeLevelIndex,
+      open: this.openLevels.slice(),
+      project: this.project(),
+    };
   }
 
   /** Salva esplicito: da qui in poi questo e' lo stato buono. */
   private save(): void {
-    this.storage.write(this.collectWork(false));
+    // Se la scrittura non e' andata, `dirty` resta vero e lo stato lo dice.
+    // Mettere "salvato" su un salvataggio fallito e' il modo piu' diretto di
+    // far perdere del lavoro a chi si e' fidato.
+    if (!this.storage.write(this.collectWork(false))) {
+      this.saveFailed = true;
+      this.refresh();
+      return;
+    }
+    this.saveFailed = false;
     this.dirty = false;
     this.lastSavedAt = Date.now();
     this.refresh();
@@ -803,8 +944,17 @@ export class LevelEditor {
   }
 
   private restore(snapshot: Snapshot): void {
-    this.levels = clone(snapshot.project.levels);
+    // Copia dell'elenco, non dei livelli: lo stesso snapshot puo' essere
+    // ripristinato piu' volte — annulla, rifai, annulla — e i livelli che
+    // contiene devono restare quelli. Vale la regola di `project()`: si
+    // sostituiscono, non si modificano.
+    this.levels = snapshot.project.levels.slice();
     this.activeLevelIndex = Phaser.Math.Clamp(snapshot.level, 0, this.levels.length - 1);
+    // Le schede non stanno nella cronologia — aprirne una non e' una modifica
+    // della scena — ma un undo puo' far sparire o ricomparire dei livelli:
+    // quelle rimaste appese vanno tolte.
+    this.remapOpen((i) => (i < this.levels.length ? i : null));
+    this.markOpen(this.activeLevelIndex);
     this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
     this.placement.activeLayer = snapshot.layer;
     this.selection.clear();
@@ -1037,10 +1187,20 @@ export class LevelEditor {
         font: 13px/1.4 system-ui, sans-serif; color: #e8e8ef;
       }
       #level-tabs .tabs { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 auto; scrollbar-width: thin; }
-      #level-tabs .tabs button { min-height: 34px; padding: 0 12px; }
-      /* Le azioni non scorrono via con le schede: restano raggiungibili. */
-      #level-tabs .actions { display: flex; gap: 4px; flex: 0 0 auto; }
-      #level-tabs .actions button { min-height: 34px; padding: 0 9px; }
+      /* Il pulsante dell'elenco non scorre via con le schede: con cento livelli
+         e' la via d'accesso a tutto il resto. */
+      #level-tabs .elenco { flex: 0 0 auto; min-height: 34px; padding: 0 10px; font-size: 16px; }
+      /* Una scheda e' due pulsanti attaccati: il nome apre, la × chiude. */
+      #level-tabs .tab {
+        display: flex; flex: 0 0 auto; align-items: stretch;
+        border: 1px solid #3a3a48; border-radius: 8px; background: #2f2f3d;
+      }
+      #level-tabs .tab.attiva { border-color: #ffd166; background: #4a4432; }
+      #level-tabs .tab button { min-height: 34px; border: 0; background: none; border-radius: 8px; }
+      #level-tabs .tab .nome { padding: 0 4px 0 12px; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
+      #level-tabs .tab.attiva .nome { color: #ffd166; }
+      #level-tabs .tab .chiudi { padding: 0 8px; opacity: .6; font-size: 12px; }
+      #level-tabs .tab .chiudi:hover:not(:disabled) { opacity: 1; background: #ffffff14; }
 
       #layer-panel {
         position: fixed; z-index: 10;
@@ -1271,18 +1431,16 @@ export class LevelEditor {
     this.tabBar = document.createElement('div');
     this.tabBar.id = 'level-tabs';
 
+    // Prima delle schede, e sempre visibile: con cento livelli e' da qui che si
+    // arriva a tutto, mentre crea/duplica/rinomina/elimina sono finiti dentro
+    // l'elenco, dove si vede su cosa agiscono.
+    const apriElenco = this.button('📚', () => this.browser.toggle(), this.tabBar);
+    apriElenco.className = 'elenco';
+    apriElenco.title = 'Tutti i livelli: cerca, apri, crea, elimina';
+
     this.tabList = document.createElement('div');
     this.tabList.className = 'tabs';
     this.tabBar.appendChild(this.tabList);
-
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    this.tabBar.appendChild(actions);
-
-    this.button('+', () => this.addLevel(), actions).title = 'Nuovo livello';
-    this.button('⧉', () => this.duplicateLevel(), actions).title = 'Duplica il livello aperto';
-    this.button('✎', () => this.renameLevel(), actions).title = 'Rinomina il livello aperto';
-    this.button('🗑', () => void this.deleteLevel(), actions).title = 'Elimina il livello aperto';
 
     document.body.appendChild(this.tabBar);
   }
@@ -1366,12 +1524,52 @@ export class LevelEditor {
   }
 
   /** Ricostruisce le schede. Sono poche: rifarle e' piu' sicuro che aggiornarle. */
+  /**
+   * Ricostruisce le schede: **solo i livelli aperti**, non tutti.
+   *
+   * Con cento livelli una striscia da cento pulsanti non e' navigabile, e
+   * nemmeno con venti. Le schede sono i due o tre fra cui si sta andando avanti
+   * e indietro; per gli altri c'e' 📚.
+   */
   private refreshTabs(): void {
     this.tabList.textContent = '';
-    this.levels.forEach((level, index) => {
-      const tab = this.button(level.name, () => this.openLevel(index), this.tabList);
-      tab.setAttribute('aria-pressed', String(index === this.activeLevelIndex));
-    });
+    for (const index of this.openLevels) {
+      const level = this.levels[index];
+      if (!level) continue;
+
+      const tab = document.createElement('div');
+      tab.className = 'tab';
+      if (index === this.activeLevelIndex) tab.classList.add('attiva');
+
+      const apri = this.button(level.name, () => this.openLevel(index), tab);
+      apri.className = 'nome';
+      apri.setAttribute('aria-pressed', String(index === this.activeLevelIndex));
+
+      // La × chiude la scheda e non tocca il livello, che resta nell'elenco.
+      // L'ultima non si chiude: la scena disegna sempre un livello.
+      const chiudi = this.button('✕', () => this.closeLevel(index), tab);
+      chiudi.className = 'chiudi';
+      chiudi.title = `Chiudi la scheda "${level.name}" (il livello resta)`;
+      chiudi.disabled = this.openLevels.length <= 1;
+
+      this.tabList.appendChild(tab);
+    }
+    this.browser.refresh();
+  }
+
+  /** L'elenco come lo vede il pannello 📚. */
+  private browserLevels(): BrowserLevel[] {
+    return this.levels.map((level, index) => ({
+      name: level.name,
+      // Il livello aperto si conta dalla scena: e' li' che sta il lavoro non
+      // ancora riletto, e un conteggio vecchio di una pennellata si nota.
+      blocks:
+        index === this.activeLevelIndex
+          ? this.placement.count
+          : level.layers.reduce((n, layer) => n + layer.blocks.length, 0),
+      open: this.openLevels.includes(index),
+      active: index === this.activeLevelIndex,
+    }));
   }
 
   /** Ricostruisce l'elenco dei layer. Sono pochi: rifarlo e' piu' sicuro che aggiornarlo. */
@@ -1487,7 +1685,12 @@ export class LevelEditor {
       ? 'Altri comandi — lavoro non salvato'
       : 'Altri comandi: griglia, salva, apri, scarica';
 
-    if (!this.storage.available) {
+    if (this.saveFailed) {
+      // Non e' un dettaglio da nascondere in un angolo: da qui in poi l'unico
+      // posto sicuro dove mettere il lavoro e' il file scaricato.
+      this.statusLabel.textContent = '⚠ memoria piena: usa Scarica';
+      this.statusLabel.classList.add('dirty');
+    } else if (!this.storage.available) {
       this.statusLabel.textContent = 'salvataggio non disponibile';
       this.statusLabel.classList.remove('dirty');
     } else if (this.dirty) {

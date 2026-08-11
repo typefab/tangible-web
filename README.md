@@ -130,13 +130,22 @@ in cima all'elenco e' quello disegnato davanti.
 - **+** aggiunge un piano (max 8), **▲ ▼** lo riordinano, **✎** lo rinomina,
   **🗑** lo elimina con i suoi blocchi
 
-**Le schede dei livelli**
+**I livelli**
 
-La barra in cima elenca i livelli. Un solo `level.json` li contiene tutti.
+Un solo `level.json` li contiene tutti, anche cento. Due cose diverse:
 
-- **tocca una scheda** per aprire quel livello
-- **+** ne crea uno, **⧉** duplica quello aperto, **✎** lo rinomina, **🗑** lo
-  elimina (si recupera con `Ctrl+Z`)
+| | Cos'e' | Dove |
+|---|---|---|
+| **Catalogo** | tutti i livelli del progetto | **📚** in alto a sinistra |
+| **Schede** | quelli aperti adesso | la barra in cima |
+
+- **📚** apre l'elenco: cerchi per nome, tocchi un livello e si apre in una
+  scheda. Da li' anche **+ Nuovo livello**, e per ogni riga **✎** rinomina,
+  **⧉** duplica, **🗑** elimina (si recupera con `Ctrl+Z`)
+- **✕ su una scheda la chiude, e non elimina niente**: il livello resta
+  nell'elenco. Le schede sono i due o tre fra cui stai andando avanti e
+  indietro, non tutto quello che hai costruito
+- una scheda resta sempre aperta: la scena disegna sempre un livello
 - in gioco si sceglie con l'URL: `?level=2` oppure `?level=Caverna`. Senza, si
   gioca il primo
 
@@ -219,7 +228,8 @@ quindi da `public/` servirebbe un elenco scritto a mano.
   `src/assets/blocks/` compare da solo nella palette e nell'inventario
 - **Layer** con nome, visibilita' e quota: si costruisce anche in verticale, e
   in gioco il tocco prende sempre il blocco piu' in alto
-- **Piu' livelli in un file solo**, con le schede nell'editor e `?level=` in gioco
+- **Piu' livelli in un file solo**, con `?level=` in gioco. Nell'editor un
+  catalogo con ricerca, e le schede solo per quelli aperti: regge a cento livelli
 - **Salvataggio locale con conferma**: l'editor ricorda, ma chiede sempre prima
   di ripristinare
 - **Selezione a rettangolo** come area: riempimento, svuotamento, spostamento,

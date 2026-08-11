@@ -120,7 +120,10 @@ test.describe('selezione', () => {
     const copiati = (await state(page)).selBlocchi;
     await page.keyboard.press('Control+c');
 
-    await page.click('#level-tabs .tabs button:nth-child(2)');
+    // L'altro livello va aperto dall'elenco: in alto c'e' una scheda sola,
+    // perche' le schede sono i livelli aperti e non tutto il catalogo.
+    await page.click('#level-tabs .elenco');
+    await page.click('#level-browser .riga:has-text("Livello 2") .nome');
     const prima = await state(page);
 
     const vuoto = await cellAt(page, 14, 14);
