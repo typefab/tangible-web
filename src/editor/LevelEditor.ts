@@ -78,6 +78,17 @@ const TOOL_KEYS: Record<string, Tool> = {
 /** Quanti passi indietro si possono fare. */
 const UNDO_LIMIT = 60;
 
+/**
+ * Quanto va tenuto premuto un blocco perche' il contagocce lo prenda.
+ *
+ * Mezzo secondo e' la soglia di fatto delle tastiere di sistema: piu' corta si
+ * attiverebbe dipingendo piano, piu' lunga sembrerebbe che non funziona.
+ */
+const PICK_MS = 500;
+
+/** Oltre questo scarto in pixel non e' piu' un tocco fermo, e' un tratto. */
+const PICK_SLOP = 8;
+
 /** Copia profonda. Gli snapshot non devono condividere niente con lo stato vivo. */
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -101,6 +112,7 @@ export class LevelEditor {
   private toolButtons = new Map<Tool, HTMLButtonElement>();
   private undoButton!: HTMLButtonElement;
   private redoButton!: HTMLButtonElement;
+  private menuButton!: HTMLButtonElement;
   private deleteButton!: HTMLButtonElement;
   private selectionActions!: HTMLDivElement;
   private copyButton!: HTMLButtonElement;
@@ -130,6 +142,15 @@ export class LevelEditor {
   private pointerDown = false;
   /** Lo stato prima della traccia corrente: si impila solo se qualcosa cambia. */
   private strokeStart: Snapshot | null = null;
+  /**
+   * Se il lavoro era gia' "non salvato" quando la traccia e' cominciata.
+   *
+   * Serve solo ad annullarla: una traccia disfatta riporta la scena a com'era,
+   * e quindi deve riportare anche questo. Senza, appoggiare due dita o
+   * prendere un colore lascerebbe scritto "non salvato" su un lavoro che
+   * nessuno ha toccato.
+   */
+  private strokeWasDirty = false;
   private panFrom: { x: number; y: number; scrollX: number; scrollY: number } | null = null;
 
   /**
@@ -142,6 +163,15 @@ export class LevelEditor {
   private clipboardOrigin = { col: 0, row: 0 };
   /** L'ultima cella sotto il puntatore: e' li' che si incolla. */
   private hoverCell: { col: number; row: number } | null = null;
+
+  /**
+   * Il tocco lungo in corso: dove e' cominciato e che blocco c'era **prima**
+   * che il pennello lo coprisse. Il tipo si legge al momento in cui il dito
+   * scende, non quando scatta il contagocce: a quel punto la cella contiene
+   * gia' quello che si stava dipingendo.
+   */
+  private press: { x: number; y: number; type: BlockType } | null = null;
+  private pressTimer: number | null = null;
 
   constructor(scene: Phaser.Scene, placement: GridPlacement, published: SerializedProject) {
     this.scene = scene as GameSceneLike;
@@ -355,7 +385,10 @@ export class LevelEditor {
   /** Una modifica qualsiasi: segna il lavoro come non salvato e programma l'autosave. */
   private touch(): void {
     this.dirty = true;
-    this.storage.queueAutosave(() => this.collectWork(true));
+    // Lo stato si legge quando l'autosave scrive davvero, non adesso: fra i due
+    // istanti ci puo' stare un Salva, o una traccia annullata che rimette il
+    // lavoro come lo si era lasciato.
+    this.storage.queueAutosave(() => this.collectWork(this.dirty));
     this.refresh();
   }
 
@@ -367,19 +400,21 @@ export class LevelEditor {
     // Il secondo dito annulla quello che il primo stava facendo: appoggiando
     // due dita per spostarsi non si deve restare con un blocco piazzato per
     // sbaglio dove e' atterrato il primo.
-    this.gestures.onGestureStart = () => {
-      this.pointerDown = false;
-      this.panFrom = null;
-      this.selection.cancel();
-      if (this.strokeStart) {
-        this.restore(this.strokeStart);
-        this.strokeStart = null;
-      }
-    };
+    this.gestures.onGestureStart = () => this.cancelStroke();
 
     input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
       if (this.gestures.active) return;
       this.pointerDown = true;
+
+      // Alt+clic prende il tipo di blocco senza aspettare: e' il gesto che chi
+      // usa un programma di disegno ha gia' nelle dita. Su telefono l'Alt non
+      // c'e', ed e' il motivo per cui esiste anche il tocco lungo.
+      if (p.event instanceof MouseEvent && p.event.altKey) {
+        this.pointerDown = false;
+        const { col, row } = this.scene.cellUnder(p);
+        this.pick(this.placement.topBlockAt(col, row)?.sprite.getData('type') as BlockType | undefined);
+        return;
+      }
 
       if (this.tool === 'pan') {
         const cam = this.scene.cameras.main;
@@ -390,6 +425,7 @@ export class LevelEditor {
       // Lo stato di partenza si cattura qui e si impila solo a fine traccia:
       // un trascinamento che tocca 30 celle deve costare un solo undo.
       this.strokeStart = this.snapshot();
+      this.strokeWasDirty = this.dirty;
       this.strokeCell = null;
 
       if (this.tool === 'select') {
@@ -397,12 +433,17 @@ export class LevelEditor {
         this.refresh();
         return;
       }
+      this.armPick(p);
       this.applyAt(p);
     });
 
     input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
       // Aggiornata anche a dito alzato: e' la cella dove finira' un incolla.
       this.hoverCell = this.scene.cellUnder(p);
+      // Il dito si e' mosso: era un tratto, non un tocco fermo.
+      if (this.press && Math.hypot(p.x - this.press.x, p.y - this.press.y) > PICK_SLOP) {
+        this.disarmPick();
+      }
       if (!this.pointerDown || this.gestures.active) return;
 
       if (this.tool === 'pan') {
@@ -427,10 +468,101 @@ export class LevelEditor {
     input.on(Phaser.Input.Events.GAME_OUT, () => this.endStroke());
   }
 
+  /**
+   * Abbandona il tratto in corso e rimette la scena com'era.
+   *
+   * Serve a due gesti diversi che hanno lo stesso problema: quando il secondo
+   * dito arriva per un pinch, e quando un tocco fermo si rivela un contagocce,
+   * il primo dito ha gia' dipinto. In tutti e due i casi quel blocco non era
+   * voluto.
+   */
+  private cancelStroke(): void {
+    this.pointerDown = false;
+    this.panFrom = null;
+    this.disarmPick();
+    this.selection.cancel();
+    if (this.strokeStart) {
+      this.restore(this.strokeStart);
+      this.strokeStart = null;
+      // `restore` segna sempre "non salvato", perche' di solito arriva da un
+      // undo, che e' una modifica. Qui no: la scena e' tornata identica a
+      // prima del tocco, e dirlo modificata sarebbe falso.
+      this.dirty = this.strokeWasDirty;
+      this.refresh();
+    }
+  }
+
+  // ----------------------------------------------------------- contagocce
+
+  /**
+   * Prepara il contagocce per questo tocco.
+   *
+   * Si arma solo se sotto il dito c'e' gia' un blocco: su terreno vuoto non ci
+   * sarebbe niente da prendere, e tenere premuto dopo una pennellata
+   * cancellerebbe il blocco appena messo — che e' l'opposto di quello che si
+   * sta chiedendo.
+   *
+   * Solo con pennello e gomma. Con ✋ e con la selezione il dito fermo ha gia'
+   * un significato — si tiene premuto prima di trascinare — e rubarglielo dopo
+   * mezzo secondo renderebbe quei due strumenti imprevedibili.
+   */
+  private armPick(p: Phaser.Input.Pointer): void {
+    this.disarmPick();
+    if (this.tool !== 'brush' && this.tool !== 'erase') return;
+
+    const { col, row } = this.scene.cellUnder(p);
+    const type = this.placement.topBlockAt(col, row)?.sprite.getData('type') as BlockType | undefined;
+    if (!type) return;
+
+    this.press = { x: p.x, y: p.y, type };
+    this.pressTimer = window.setTimeout(() => {
+      const picked = this.press?.type;
+      // Prima si disfa la pennellata che il tocco aveva gia' prodotto, poi si
+      // prende il tipo: chi tiene premuto sta indicando un blocco, non
+      // dipingendo.
+      this.cancelStroke();
+      this.pick(picked);
+    }, PICK_MS);
+  }
+
+  private disarmPick(): void {
+    if (this.pressTimer !== null) window.clearTimeout(this.pressTimer);
+    this.pressTimer = null;
+    this.press = null;
+  }
+
+  /**
+   * Rende scelto un tipo di blocco, come se si fosse premuto il suo pulsante.
+   *
+   * Con la gomma in mano si passa al pennello, per la stessa ragione della
+   * palette: indicare un blocco significa volerlo piazzare. Non succede se c'e'
+   * un'area selezionata, perche' li' la gomma e' "svuota l'area" ed e' una
+   * scelta appena fatta.
+   */
+  private pick(type: BlockType | undefined): void {
+    if (!type) return;
+
+    this.placement.selected = type;
+    if (this.tool === 'erase' && this.selection.count === 0) this.setTool('brush');
+    else this.refresh();
+
+    // Il gesto non ha un pulsante da guardare: senza questo, con la palette
+    // scorsa altrove, non si vedrebbe succedere niente.
+    const button = this.paletteButtons.get(type);
+    if (!button) return;
+    button.scrollIntoView({ block: 'nearest', inline: 'center' });
+    button.classList.remove('preso');
+    // Rileggere una proprieta' di layout fa ripartire l'animazione anche
+    // prendendo due volte di fila lo stesso blocco.
+    void button.offsetWidth;
+    button.classList.add('preso');
+  }
+
   private endStroke(): void {
     const wasDown = this.pointerDown;
     this.pointerDown = false;
     this.panFrom = null;
+    this.disarmPick();
     if (!wasDown) return;
 
     if (this.tool === 'select') {
@@ -761,6 +893,25 @@ export class LevelEditor {
     return this.scene.textures.getBase64(texture);
   }
 
+  /**
+   * Apre e chiude il foglio dei comandi rari.
+   *
+   * La classe sta sulla barra e non sul foglio perche' e' il CSS a decidere se
+   * il foglio si nasconde: sopra i 600px resta una riga sempre visibile, e ⋯
+   * non compare nemmeno. Cosi' su schermo largo non si perde un tocco per
+   * arrivare a Salva, e non ci sono due comportamenti da tenere allineati nel
+   * codice — ce n'e' uno solo, e una media query.
+   */
+  private toggleMenu(): void {
+    const open = this.root.classList.toggle('menu-open');
+    this.menuButton.setAttribute('aria-expanded', String(open));
+  }
+
+  private closeMenu(): void {
+    this.root.classList.remove('menu-open');
+    this.menuButton.setAttribute('aria-expanded', 'false');
+  }
+
   private button(label: string, onClick: () => void, parent: HTMLElement): HTMLButtonElement {
     const b = document.createElement('button');
     b.textContent = label;
@@ -834,10 +985,24 @@ export class LevelEditor {
       #editor-toolbar button.palette img {
         width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated;
       }
+      /* Il contagocce non ha un pulsante da premere: il lampo sulla palette e'
+         tutto quello che dice che il tocco lungo ha funzionato. */
+      #editor-toolbar button.palette.preso { animation: preso .6s ease-out; }
+      @keyframes preso {
+        0% { border-color: #ffd166; box-shadow: 0 0 0 0 #ffd166; }
+        100% { box-shadow: 0 0 0 10px #ffd16600; }
+      }
+      /* Chi ha chiesto di non vedere animazioni tiene comunque il bordo acceso,
+         che e' l'informazione: il lampo era solo il modo di darla. */
+      @media (prefers-reduced-motion: reduce) {
+        #editor-toolbar button.palette.preso { animation: none; border-color: #ffd166; }
+      }
       #editor-toolbar button.palette span {
         font-size: 10px; opacity: .8; max-width: 100%;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
+      /* Sopra i 600px il foglio e' una riga come le altre e ⋯ non serve. */
+      #editor-toolbar .menu { display: none; }
       #editor-toolbar .sep { width: 1px; align-self: stretch; background: #3a3a48; }
       #editor-toolbar .spacer { flex: 1 1 auto; }
       #editor-toolbar .hidden-input { display: none; }
@@ -895,6 +1060,14 @@ export class LevelEditor {
         #editor-toolbar .tools button.azione .txt { display: inline; }
         #editor-toolbar .tools button { padding: 0 12px; font-size: 17px; }
         #editor-toolbar button, #layer-panel button, #level-tabs button { min-height: 38px; }
+        /* Il foglio si apre con ⋯. Restano sempre in vista le due righe che si
+           toccano di continuo — palette e strumenti — piu' annulla, zoom e il
+           conteggio dei blocchi. */
+        #editor-toolbar .menu { display: inline-block; }
+        #editor-toolbar:not(.menu-open) .sheet { display: none; }
+        /* Chiuso, il foglio si porta dentro anche la scritta "non salvato":
+           il pallino su ⋯ e' quello che resta a dirlo. */
+        #editor-toolbar .menu.dirty { border-color: #ffd166; color: #ffd166; }
         /* Il nome del layer porta anche il conteggio dei blocchi: stringendo
            la riga invece del pannello, non viene tagliato. */
         #layer-panel .row button { padding: 0 4px; }
@@ -971,6 +1144,33 @@ export class LevelEditor {
     this.button('+', () => this.gestures.zoomBy(ZOOM_STEP), view).title = 'Ingrandisci';
     this.button('⤢', () => this.resetView(), view).title = 'Reimposta vista';
 
+    // Apre l'ultima riga, che su telefono sta chiusa. Esiste solo li': sotto i
+    // 600px la barra occupava il 37% dello schermo, cioe' quasi quanto la scena
+    // che si sta costruendo, e meta' di quello spazio era per comandi che si
+    // toccano una volta a serata.
+    this.menuButton = this.button('⋯', () => this.toggleMenu(), view);
+    this.menuButton.className = 'menu';
+    this.menuButton.setAttribute('aria-expanded', 'false');
+
+    view.appendChild(Object.assign(document.createElement('span'), { className: 'spacer' }));
+    this.countLabel = document.createElement('span');
+    view.appendChild(this.countLabel);
+
+    // Riga 4: vista, salvataggio ed esportazione — il "foglio".
+    // Su schermo largo e' una riga come le altre; su telefono si apre con ⋯.
+    const file = document.createElement('div');
+    file.className = 'controls sheet';
+    this.root.appendChild(file);
+
+    // Chiude il foglio dopo un comando, cosi' la scena torna visibile senza un
+    // secondo tocco. Fanno eccezione quelli marcati `keep`: la griglia si
+    // accende e si spegne guardando il risultato, e Copia scrive li' dentro se
+    // ha funzionato — chiudendo, quella risposta non si leggerebbe.
+    file.addEventListener('click', (e) => {
+      const button = (e.target as HTMLElement).closest('button');
+      if (button && !button.dataset.keep) this.closeMenu();
+    });
+
     // Nasconde le linee della griglia per guardare la scena pulita.
     // Lo snap resta comunque attivo: si tocca sempre una cella.
     const grid = document.createElement('button');
@@ -983,17 +1183,9 @@ export class LevelEditor {
       this.scene.setGridVisible(!this.scene.gridVisible);
       syncGridLabel();
     };
+    grid.dataset.keep = '1';
     syncGridLabel();
-    view.appendChild(grid);
-
-    view.appendChild(Object.assign(document.createElement('span'), { className: 'spacer' }));
-    this.countLabel = document.createElement('span');
-    view.appendChild(this.countLabel);
-
-    // Riga 4: salvataggio ed esportazione.
-    const file = document.createElement('div');
-    file.className = 'controls';
-    this.root.appendChild(file);
+    file.appendChild(grid);
 
     const saveButton = this.button('💾 Salva', () => this.save(), file);
     saveButton.className = 'primary';
@@ -1028,6 +1220,7 @@ export class LevelEditor {
     // sbagliano peggio, e "scarica" e "copia" non si distinguono a icone.
     const copy = this.button('📋 Copia', () => this.copyToClipboard(copy), file);
     copy.title = 'Copia il JSON negli appunti';
+    copy.dataset.keep = '1';
     this.button('⬇ Scarica', () => this.download(), file).title =
       'Scarica level.json: è il file da caricare su GitHub, ed è questo che porta il lavoro nel gioco';
 
@@ -1083,6 +1276,15 @@ export class LevelEditor {
       collapse.textContent = this.layerPanel.classList.contains('collapsed') ? '▸' : '▾';
     }, head);
     collapse.title = 'Comprimi il pannello';
+
+    // E su telefono parte gia' chiuso: aperto occupa 228x168 sopra la scena,
+    // proprio l'angolo in cui l'origine isometrica mette i primi blocchi —
+    // si costruiva sotto un pannello. Su schermo largo lo spazio c'e', e
+    // aprirlo ogni volta sarebbe un tocco in piu' per niente.
+    if (window.matchMedia('(max-width: 600px)').matches) {
+      this.layerPanel.classList.add('collapsed');
+      collapse.textContent = '▸';
+    }
 
     this.layerList = document.createElement('div');
     this.layerList.className = 'list';
@@ -1241,6 +1443,13 @@ export class LevelEditor {
     this.cutButton.disabled = selected === 0;
     this.pasteButton.disabled = this.clipboard.length === 0;
     this.addLayerButton.disabled = this.placement.layers.length >= LAYERS.max;
+
+    // Su telefono lo stato per esteso e' dentro il foglio chiuso: senza questo,
+    // "non salvato" non lo direbbe piu' nessuno.
+    this.menuButton.classList.toggle('dirty', this.dirty);
+    this.menuButton.title = this.dirty
+      ? 'Altri comandi — lavoro non salvato'
+      : 'Altri comandi: griglia, salva, apri, scarica';
 
     if (!this.storage.available) {
       this.statusLabel.textContent = 'salvataggio non disponibile';
