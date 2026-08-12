@@ -1,7 +1,7 @@
 # Piano di lavoro — Tangible Cushion
 
 Documento di riferimento su scelte di architettura, stato e prossimi passi.
-Ultimo aggiornamento: 10 agosto 2026.
+Ultimo aggiornamento: 12 agosto 2026.
 
 ---
 
@@ -567,7 +567,6 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Editor di scene | `editor/LevelEditor.ts` | `?editor=1`, esporta `level.json` |
 | Catalogo sprite | `assets/catalog.ts` | elenco generato dalle cartelle, alias per gli id vecchi |
 | Layer | `mechanics/GridPlacement.ts` | nome, visibilita', quota; pannello in `LevelEditor.ts` |
-| Formato progetto | `level/project.ts` | piu' livelli in un file, normalizzazione dei formati vecchi |
 | Salvataggio locale | `editor/EditorStorage.ts` | autosave e Salva, con `dialog.ts` per la domanda all'apertura |
 | Gesti | `editor/CameraGestures.ts` | pan e pinch a due dita, zoom ancorato al dito |
 | Selezione ad area | `editor/SelectionTool.ts` | rettangolo, riempimento, svuotamento, spostamento, appunti |
@@ -687,13 +686,36 @@ origini sconosciute, perche' e' un APK debug non firmato.
 Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
 `npx cap add android` genera un progetto minimo e il runner ha gia' l'SDK.
 
+### L'editor su un telefono vero — 12 agosto 2026
+
+Cade il punto aperto piu' vecchio dopo "vedere il gioco girare": Fabrizio ha
+usato l'editor dal suo telefono. Ha trovato in pochi minuti due difetti che
+nessuno dei 64 test di allora vedeva, **piu' uno che non e' un difetto ma un
+disegno sbagliato**:
+
+| Cosa e' successo | Perche' i test non lo prendevano |
+|---|---|
+| ⋯ non compariva e il pannello dei layer restava aperto | la soglia guardava la **larghezza**, e i test giravano a 390x780. Il telefono era **girato**: 780x390 e' "schermo largo" |
+| il contagocce funzionava | (conferma, non difetto) |
+| sembrava si potesse mettere un fondale solo | un fondale grande copre lo schermo, e da li' ogni tocco *prende quello*. Nessun test provava a metterne un secondo **dopo** uno grande |
+
+La lezione e' la stessa delle altre volte, e vale la pena scriverla: i test
+proteggono le decisioni che qualcuno ha gia' pensato. Il telefono vero trova
+quelle che nessuno ha pensato — qui, che uno schermo puo' girarsi, e che una
+regola giusta ("il dito dentro prende") diventa una trappola quando l'oggetto e'
+piu' grande dello schermo.
+
+Ora ci sono test per tutti e tre i casi, incluso un viewport 780x390.
+
 ### Non verificato
 
-- **Il tocco su un telefono vero** resta il buco principale (vedi sotto).
-- **Il tocco non e' mai stato provato su un telefono vero**, solo su un viewport
-  da 390x780 con il mouse — e i test toccano lo schermo via protocollo, che non
-  e' la stessa cosa di un dito.
+- **Il gesto a due dita e la selezione su un telefono vero.** Il primo giro
+  reale ha coperto barra, strumenti, contagocce e fondali; pinch, trascinamento
+  della selezione e appunti no.
 - **L'APK non e' mai stato installato**: e' stato prodotto, non provato.
+- **I pesi di JPG e WebP** citati nel README vengono dalla conoscenza generale,
+  non da una misura: in questo ambiente non c'e' un compressore per quei
+  formati. Il numero del PNG invece e' misurato.
 
 ### Avaria GitHub del 6 agosto 2026
 
@@ -717,11 +739,20 @@ primo push.
 ## 6. Struttura dei file — fatta
 
 ```
-src/assets/
-  catalog.ts     <- l'elenco, generato da import.meta.glob
-  blocks/        basic.png, stack.png…   -> palette e inventario, automatici
-  characters/    player.png
-  ui/            joystick-border.png, joystick-thumb.png
+src/
+  assets/
+    catalog.ts     <- l'elenco, generato da import.meta.glob
+    blocks/        basic.png, stack.png…   -> palette e inventario, automatici
+    backgrounds/   -> palette dello strumento 🖼; png, jpg e webp
+    characters/    player.png
+    ui/            joystick-border.png, joystick-thumb.png
+  grid/            projection.ts   <- l'unico posto che sa la forma di una cella
+  level/           project.ts      <- formato di level.json e normalizzazione
+  mechanics/       GridPlacement, Player, Inventory, VirtualJoystick
+  scenes/          GameScene, Backdrop
+  ui/              InventoryBar
+  editor/          LevelEditor, LevelBrowser, SelectionTool, CameraGestures,
+                   EditorStorage, dialog
 public/
   level.json     <- prodotto dall'editor
   assets/        <- archivio del progetto GDevelop, non usato dal codice
@@ -737,6 +768,11 @@ Fabrizio conferma che non servono — oggi finiscono nel deploy come peso morto.
 `props/` non esiste ancora: si crea quando ci sara' il primo prop, insieme al
 codice che lo usa. Una cartella vuota non aiuta nessuno.
 
+In `backgrounds/` c'e' un solo file, `esempio-collina.png`: **e' un segnaposto
+generato dal codice, non arte**. Serviva ad avere qualcosa in palette per
+provare lo strumento. Va sostituito o cancellato; se la cartella resta vuota la
+palette lo dice invece di sembrare rotta.
+
 ---
 
 ## 7. Prossimi passi
@@ -751,11 +787,21 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 7. ~~Copia e incolla della selezione~~ — **fatto**, anche fra schede
 8. ~~Produrre il primo APK~~ — **fatto**, 6,5 MB negli Artifacts. Resta da
    **installarlo su un telefono vero**
-9. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
-   selezione e dimensione dei pulsanti sono tarati su un viewport, non su una
-   mano. L'ingombro della barra, che era il lato misurabile senza avere il
-   telefono in mano, e' stato ridotto — vedi "Quanto schermo resta per costruire"
-10. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+9. ~~Provare l'editor con un dito vero~~ — **fatto il 12 agosto**, e ha
+   fruttato subito due difetti piu' un disegno da rivedere. Restano da provare
+   sul telefono il pinch, il trascinamento della selezione e gli appunti
+10. ~~Barra ripensata per il telefono~~ — **fatta**: comandi rari dietro ⋯, e in
+    orizzontale le righe in fila invece che impilate
+11. ~~Contagocce~~ — **fatto**, tocco lungo o Alt+clic
+12. ~~Catalogo dei livelli~~ — **fatto**: elenco con ricerca, schede solo per gli
+    aperti, e snapshot che non crescono col numero di livelli
+13. ~~Fondali~~ — **fatti**: immagini per livello, spostabili, scalabili e
+    ruotabili, con la loro sezione nel pannello
+14. **Sostituire `esempio-collina.png`** con un fondale vero, o cancellarlo: e'
+    un segnaposto generato, non arte
+15. **`localStorage` verso IndexedDB**, quando i livelli cresceranno davvero: il
+    muro dei 5 MB adesso lo si vede arrivare, ma non e' stato tolto
+16. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
 

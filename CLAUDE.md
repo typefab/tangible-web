@@ -76,6 +76,13 @@ conversazione, non una modifica.
   chi guarda, non l'altezza.
 - **La selezione dell'editor e' un'area di celle**, vuote comprese — non un
   insieme di blocchi. E' cio' che permette a pennello e gomma di agire sull'area.
+- **Le schede in alto sono i livelli *aperti*, non tutti.** Il catalogo sta
+  dietro 📚. Con cento livelli una striscia di cento schede non e' navigabile, e
+  chiudere una scheda non elimina niente.
+- **Nessun pareggio di profondita'.** A parita' di `depth` Phaser disegna in
+  ordine di creazione, che e' un ordine per finta. Le bande stanno in `Z`:
+  fondali da -2000, griglia -1000, blocchi e player da 0. Ci siamo gia' cascati
+  due volte — il player sulla propria cella, e i fondali sopra la griglia.
 - **`normalizeProject()` non deve mai lanciare.** Accetta tre generazioni di
   `level.json` e qualunque schifezza diventa un progetto vuoto: l'editor deve
   aprirsi comunque, altrimenti non c'e' modo di rimediare a un file rotto.
@@ -115,9 +122,28 @@ Regole imparate a spese nostre:
 - se l'ambiente ha gia' un Chromium di una build diversa da quella attesa da
   Playwright: `CHROMIUM_PATH=/percorso/al/chrome npm test`.
 
+## Trappole gia' pagate
+
+Cose che sembrano andare e non vanno. Costano mezz'ora ogni volta.
+
+- **Il CSS dell'editor vive dentro un template literal** (`LevelEditor.style()`).
+  Un backtick dentro un commento CSS chiude la stringa e la build muore con un
+  errore di sintassi che punta da un'altra parte. Niente backtick li' dentro.
+- **`display: flex` batte l'attributo `hidden`.** Un elemento con `display` nel
+  CSS resta visibile anche con `hidden` addosso: serve la regola esplicita
+  `[hidden] { display: none; }`. Successo tre volte — gruppo della selezione,
+  palette, comandi dei fondali.
+- **In sviluppo l'app sta su `/`, non su `/tangible-web/`.** `base: ''` serve al
+  build; il server di sviluppo risponde sulla radice, e Vite serve `index.html`
+  a qualunque percorso. Sbagliare URL da' una pagina che si apre ma con
+  `level.json` che arriva come HTML.
+- **La soglia dell'editor compatto guarda l'altezza, non solo la larghezza**
+  (`COMPATTO`). Un telefono girato e' largo 780 e alto 390: chi guarda solo la
+  larghezza lo tratta come un desktop.
+
 ## Guardare il gioco girare
 
-Vale la pena farlo: due difetti reali sono emersi solo guardando, e nessun test
+Vale la pena farlo: piu' di un difetto e' emerso solo guardando, e nessun test
 li avrebbe presi. Con Playwright, **usa il rendering software**:
 
 ```
@@ -149,5 +175,8 @@ cosa: il cosa si vede dal codice. Codice e commenti in italiano senza accenti
 (`e'`, `perche'`), come il resto del repo.
 
 Quando qualcosa non e' stato verificato, dillo. `PIANO.md` tiene una sezione
-apposta per le cose non provate, e ci e' gia' successo di lasciarci dentro
-un'affermazione scaduta per due giorni.
+apposta per le cose non provate, e ci e' gia' successo **due volte** di
+lasciarci dentro un'affermazione scaduta: prima "le Actions non hanno mai
+completato una run" dopo due deploy riusciti, poi "il tocco non e' mai stato
+provato su un telefono vero" dopo che Fabrizio ci aveva trovato due difetti.
+Prima di ripetere una riga su cosa non e' mai successo, rileggila.
