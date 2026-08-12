@@ -323,10 +323,28 @@ Il criterio per decidere cosa resta in vista e' **quante volte si tocca**:
 |---|---|
 | palette, strumenti, annulla/rifai, zoom, ⤢, conteggio | griglia, Salva, Apri, Copia, Scarica, Gioca |
 
-Sono 171px invece di 289: **562px di scena invece di 444**. Sopra i 600px non
-cambia niente — il foglio resta una riga come le altre e ⋯ non compare
-nemmeno — perche' li' lo spazio c'e' e un tocco in piu' per arrivare a Salva
-sarebbe solo un peggioramento.
+Sono 171px invece di 289: **562px di scena invece di 444**. Dove lo spazio c'e'
+non cambia niente — il foglio resta una riga come le altre e ⋯ non compare
+nemmeno — perche' li' un tocco in piu' per arrivare a Salva sarebbe solo un
+peggioramento.
+
+**La soglia sbagliata, corretta dopo la prima prova su un telefono vero.** La
+regola guardava la larghezza: `max-width: 600px`. Un telefono **girato** la
+mancava in pieno, perche' 780x390 e' "schermo largo" — restava la barra intera
+su uno schermo alto 390, col pannello dei layer aperto sopra il poco che
+avanzava. La barra consuma **altezza**, ed e' quella la misura giusta:
+
+| | Barra + schede | Scena |
+|---|---|---|
+| 780x390, prima | 62% | 148px |
+| 780x390, con la soglia sull'altezza | 56% | 172px |
+| 780x390, **con le righe in fila** | **32%** | **264px** |
+
+Il secondo passo e' la conseguenza del primo: girato, il telefono ha larghezza
+in abbondanza e non ha altezza, quindi impilare le righe e' esattamente lo
+spreco da evitare. In fila stanno in una riga sola, 79px invece di 195, e la
+palette prende lo spazio che resta — se non ci sta va a capo da sola, tornando
+al comportamento di prima invece di rompersi.
 
 Tre dettagli che non erano ovvi:
 
@@ -339,6 +357,76 @@ Tre dettagli che non erano ovvi:
   rischio piu' vecchio del progetto.
 - **su telefono il pannello dei layer parte chiuso.** Si apre quando serve,
   invece di coprire l'angolo in cui si sta costruendo.
+
+### Cento livelli: catalogo e schede sono due cose diverse
+
+Le schede elencavano **tutti** i livelli. Con due va bene; con venti la striscia
+non e' navigabile, con cento e' inutilizzabile. Ma il punto non era la striscia:
+era che "livello che esiste" e "livello che sto modificando adesso" erano la
+stessa cosa.
+
+| | Cos'e' | Dove sta |
+|---|---|---|
+| **Catalogo** | tutti i livelli del progetto, anche cento | dietro 📚, con la ricerca per nome |
+| **Schede** | i due o tre aperti adesso | in alto, con la × per chiudere |
+
+**Chiudere una scheda non elimina niente**, ed e' la distinzione che rende
+sopportabile un progetto grande: costa quanto mettere via un foglio. Crea,
+duplica, rinomina ed elimina sono passati nell'elenco, dove si vede su quale
+livello agiscono; prima stavano nella barra in alto solo perche' il catalogo
+non c'era.
+
+Due conseguenze che non erano ovvie:
+
+- **una scheda resta sempre aperta**, perche' la scena disegna sempre un
+  livello: senza, l'editor modificherebbe qualcosa che non e' in nessuna scheda.
+- **le schede non entrano nella cronologia.** Aprire un livello non e' una
+  modifica della scena. Un undo pero' puo' far sparire un livello, quindi dopo
+  ogni ripristino le schede rimaste appese vengono tolte.
+
+Le schede aperte stanno in `localStorage` e **non** in `level.json`: quello e'
+il file che legge il gioco, e non deve portarsi dietro com'era disposto
+l'editor mentre lo si costruiva.
+
+### Uno snapshot che non cresce col progetto
+
+Il costo vero di cento livelli non era l'interfaccia. `project()` **riclonava
+ogni livello fermo**, e la chiama ogni snapshot dell'undo: il prezzo di una
+pennellata cresceva col numero di livelli del progetto, non con quello che si
+stava disegnando.
+
+| Livelli | Prima | Dopo |
+|---|---|---|
+| 100 | **5,14 ms** a snapshot | **0,02 ms** |
+
+Misurato sull'editor che gira, non su un modello. Ora i livelli fermi finiscono
+nello snapshot **per riferimento**: si copia l'elenco, non i livelli.
+
+Regge su un'invariante da non rompere: **un `SerializedLevel` non si modifica
+mai sul posto, si sostituisce.** `serializeLayers()` costruisce sempre oggetti
+nuovi e `loadLayers()` legge soltanto, quindi il livello montato nella scena non
+puo' scrivere su quello memorizzato. Chi tocca un livello ne mette al suo posto
+un altro, e la cronologia continua a puntare al vecchio senza che nessuno
+glielo cambi sotto. Il primo posto dove la regola stava per saltare e' stato
+`renameLevel()`, che scriveva il nome addosso all'oggetto — cioe' cambiava
+anche il passato.
+
+Cosi' e' caduto anche il rischio "undo a snapshot dell'intero progetto": lo
+snapshot resta l'intero progetto — e quindi `Ctrl+Z` continua ad annullare
+anche le operazioni sul catalogo — ma costa come se fosse un livello solo.
+
+### Salva non deve mentire
+
+`write()` ingoiava l'errore di quota e **Salva metteva comunque "✓ salvato"**.
+Con due livelli non ci si arriva mai; con cento pieni — circa 2 MB contro i ~5
+di `localStorage` — e' la strada normale per perdere una serata credendo di
+averla al sicuro. Ora `write()` dice se ha scritto, e se non ci riesce lo stato
+diventa "⚠ memoria piena: usa Scarica", che e' il consiglio giusto: da li' in
+poi l'unico posto sicuro e' il file scaricato.
+
+Scritto il test, e' saltato fuori un secondo difetto nella correzione stessa:
+`store?.setItem(...)` dentro il `try` non scrive **e non lancia** quando lo
+store non c'e', quindi tornava "scritto" senza aver scritto.
 
 ### Nascondere un layer e' una decisione che tiene
 
@@ -407,7 +495,9 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Selezione ad area | `editor/SelectionTool.ts` | rettangolo, riempimento, svuotamento, spostamento, appunti |
 | Contagocce | `editor/LevelEditor.ts` | tocco lungo o Alt+clic, con la pennellata disfatta |
 | Apertura file | `editor/LevelEditor.ts` | legge un `level.json` dal dispositivo, annullabile |
-| Test | `test/`, `playwright.config.ts` | 64 test sul gioco che gira, in CI a ogni push |
+| Formato progetto | `level/project.ts` | piu' livelli in un file; i livelli sono valori immutabili |
+| Catalogo dei livelli | `editor/LevelBrowser.ts` | elenco con ricerca; le schede sono solo gli aperti |
+| Test | `test/`, `playwright.config.ts` | 75 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
@@ -600,6 +690,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | Il sito e' pubblico, e con lui gli sprite | Un gioco web manda le immagini al browser che lo gioca: "sprite privati" e "link pubblico" non possono essere veri insieme. Se serve riservatezza, l'unica leva e' chi puo' aprire la pagina |
 | 51 PNG inutilizzati nel deploy | Archivio in `public/assets/`. Da togliere quando Fabrizio conferma |
 | **Salva non porta il lavoro nel gioco** | Salva scrive in `localStorage`, solo Scarica + upload su GitHub aggiorna il gioco. La UI lo dice in tre punti, ma resta il modo piu' facile di perdere una serata |
+| **`localStorage` sta in ~5 MB** | Un progetto da cento livelli pieni ci arriva (~2 MB, ma cresce). Ora Salva lo dice invece di fingere, e resta Scarica; la soluzione vera e' IndexedDB |
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
-| Undo a snapshot dell'intero progetto | Con molti livelli pieni ogni passo costa qualche decina di kB. A queste dimensioni non si vede; con venti livelli grandi andra' rivisto |
+| ~~Undo a snapshot dell'intero progetto~~ | **Caduto.** Lo snapshot resta l'intero progetto, ma i livelli fermi ci finiscono per riferimento: 0,02 ms con cento livelli, contro 5,14 |
 | Ciclo commit -> gioco live ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |

@@ -22,6 +22,14 @@ export interface StoredWork {
   dirty: boolean;
   /** La scheda su cui stava lavorando. */
   activeLevel: number;
+  /**
+   * Gli indici dei livelli che aveva aperti in schede.
+   *
+   * Facoltativo perche' i record scritti prima delle schede chiudibili non ce
+   * l'hanno, e un lavoro salvato ieri deve continuare ad aprirsi: senza,
+   * riparte con la sola scheda attiva.
+   */
+  open?: number[];
   project: SerializedProject;
 }
 
@@ -68,11 +76,27 @@ export class EditorStorage {
     }
   }
 
-  write(work: Omit<StoredWork, 'savedAt'>): void {
+  /**
+   * @returns false se non ha scritto — quasi sempre quota piena.
+   *
+   * Prima l'errore veniva ingoiato e basta: l'editor continuava a funzionare
+   * ma non ricordava piu' niente, e **Salva diceva comunque "salvato"**. Con
+   * due livelli non ci si arriva mai; con cento — 2 MB su un `localStorage` da
+   * 5 — e' la strada normale per perdere una serata credendo di averla al
+   * sicuro. Chi chiama decide cosa dire, ma deve saperlo.
+   */
+  write(work: Omit<StoredWork, 'savedAt'>): boolean {
+    // Lo store si prende in una variabile: con `store?.setItem(...)` dentro il
+    // try, quando lo store non c'e' non viene scritto niente e non viene
+    // lanciato niente — cioe' si tornava "scritto" senza aver scritto.
+    const store = EditorStorage.store;
+    if (!store) return false;
+
     try {
-      EditorStorage.store?.setItem(KEY, JSON.stringify({ ...work, savedAt: Date.now() }));
+      store.setItem(KEY, JSON.stringify({ ...work, savedAt: Date.now() }));
+      return true;
     } catch {
-      // Quota piena: l'editor continua a funzionare, semplicemente non ricorda.
+      return false;
     }
   }
 

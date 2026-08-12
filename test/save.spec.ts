@@ -83,6 +83,26 @@ test.describe('salvataggio e ripresa', () => {
     expect((await state(page)).stato).toMatch(/^✓ salvato/);
   });
 
+  test('con la memoria piena, Salva lo dice invece di far finta', async ({ page }) => {
+    await openEditor(page);
+    await dipingiQualcosa(page);
+
+    // Quota esaurita: e' quello che succede con un progetto da cento livelli
+    // pieni contro i ~5 MB di localStorage. Prima l'errore veniva ingoiato e
+    // lo stato diceva comunque "salvato": il modo piu' diretto di perdere una
+    // serata credendo di averla al sicuro.
+    await page.evaluate(() => {
+      Storage.prototype.setItem = () => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      };
+    });
+    await page.click('#editor-toolbar button:has-text("Salva")');
+
+    const s = await state(page);
+    expect(s.stato).toContain('memoria piena');
+    expect(s.stato).not.toContain('✓');
+  });
+
   test('anche il salvato chiede conferma, perche\' non e\' ancora nel file pubblicato', async ({
     page,
   }) => {
@@ -127,12 +147,12 @@ test.describe('apertura di un file', () => {
     );
 
     await expect
-      .poll(async () => (await state(page)).schede)
+      .poll(async () => (await state(page)).livelli)
       .toEqual(['Dal telefono']);
     expect((await state(page)).blocchi).toBe(1);
 
     await page.keyboard.press('Control+z');
-    expect((await state(page)).schede).toEqual(['Livello 1', 'Livello 2']);
+    expect((await state(page)).livelli).toEqual(['Livello 1', 'Livello 2']);
   });
 
   test('un file rotto lo dice invece di svuotare la scena', async ({ page }) => {

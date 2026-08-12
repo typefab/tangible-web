@@ -16,6 +16,8 @@ import { cellAt, openEditor, state } from './helpers';
  */
 
 const TELEFONO = { width: 390, height: 780 };
+/** Lo stesso telefono girato. E' il caso che la prima versione mancava. */
+const TELEFONO_GIRATO = { width: 780, height: 390 };
 
 /** Altezza in pixel di un elemento, 0 se non c'e' o e' nascosto. */
 function altezza(page: import('@playwright/test').Page, selector: string): Promise<number> {
@@ -103,6 +105,50 @@ test.describe('barra su telefono', () => {
     await pannello.locator('.head button').last().click();
     await expect(pannello).not.toHaveClass(/collapsed/);
     await expect(pannello.locator('.row').first()).toBeVisible();
+  });
+});
+
+/**
+ * Il telefono girato: largo 780 e alto 390.
+ *
+ * La prima versione legava tutto alla larghezza, e qui la mancava in pieno —
+ * 780px e' "schermo largo", quindi teneva la barra intera su uno schermo alto
+ * 390: 195px di comandi piu' il pannello dei layer aperto sopra il resto, il
+ * 62% occupato. La misura giusta e' l'altezza, che e' quella che la barra
+ * consuma.
+ */
+test.describe('barra col telefono girato', () => {
+  test.use({ viewport: TELEFONO_GIRATO });
+
+  test('anche qui i comandi rari stanno dietro ⋯ e i layer partono chiusi', async ({ page }) => {
+    await openEditor(page);
+
+    await expect(page.locator('#editor-toolbar .menu')).toBeVisible();
+    expect(await altezza(page, '#editor-toolbar .sheet')).toBe(0);
+    await expect(page.locator('#layer-panel')).toHaveClass(/collapsed/);
+  });
+
+  test('le righe vanno in fila invece che impilate', async ({ page }) => {
+    await openEditor(page);
+
+    const barra = await altezza(page, '#editor-toolbar');
+    const schede = await altezza(page, '#level-tabs');
+    // Impilate erano 171px su 390 di schermo. In fila stanno in una riga sola:
+    // di larghezza qui ne avanza, ed e' l'altezza che manca.
+    expect(barra).toBeLessThan(110);
+    expect(TELEFONO_GIRATO.height - barra - schede).toBeGreaterThan(
+      TELEFONO_GIRATO.height * 0.6,
+    );
+  });
+
+  test('il foglio si apre lo stesso, e prende una riga sua', async ({ page }) => {
+    await openEditor(page);
+    await page.click('#editor-toolbar .menu');
+
+    const salva = page.locator('#editor-toolbar button:has-text("Salva")');
+    await expect(salva).toBeVisible();
+    // Aperto resta comunque meno di meta' schermo, e dura il tempo di un comando.
+    expect(await altezza(page, '#editor-toolbar')).toBeLessThan(TELEFONO_GIRATO.height / 2);
   });
 });
 

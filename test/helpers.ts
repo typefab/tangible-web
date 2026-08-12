@@ -31,7 +31,13 @@ export interface EditorState {
   blocchi: number;
   layerAttivo: number;
   layer: { nome: string; quota: number; visibile: boolean; blocchi: number }[];
+  /** Tutti i livelli del progetto: il catalogo. */
+  livelli: string[];
+  /** Solo quelli con una scheda aperta in alto. */
   schede: string[];
+  /** Indice del livello attivo dentro il catalogo. */
+  livelloAttivo: number;
+  /** Indice della scheda attiva fra quelle aperte. */
   schedaAttiva: number;
   /** Celle selezionate, vuote comprese. */
   selezionati: number;
@@ -47,7 +53,7 @@ export function state(page: Page): Promise<EditorState> {
     const scene = window.game.scene.keys.GameScene;
     const p = scene.placement;
     const e = scene.editor;
-    const tabs = [...document.querySelectorAll('#level-tabs .tabs button')];
+    const tabs = [...document.querySelectorAll('#level-tabs .tab')];
     return {
       blocchi: p.count,
       layerAttivo: p.activeLayer,
@@ -58,8 +64,11 @@ export function state(page: Page): Promise<EditorState> {
         visibile: l.visible,
         blocchi: p.countOn(i),
       })),
-      schede: tabs.map((b) => b.textContent ?? ''),
-      schedaAttiva: tabs.findIndex((b) => b.getAttribute('aria-pressed') === 'true'),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      livelli: e ? e.levels.map((l: any) => l.name) : [],
+      schede: tabs.map((t) => t.querySelector('.nome')?.textContent ?? ''),
+      livelloAttivo: e?.activeLevelIndex ?? -1,
+      schedaAttiva: tabs.findIndex((t) => t.classList.contains('attiva')),
       selezionati: e?.selection.count ?? 0,
       selBlocchi: e?.selection.blockCount ?? 0,
       stato: document.querySelector('#editor-toolbar .status')?.textContent ?? '',
