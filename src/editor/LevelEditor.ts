@@ -83,6 +83,14 @@ const TOOL_KEYS: Record<string, Tool> = {
 /** Di quanto cresce o cala un fondale a ogni tocco di − o +. */
 const BACKDROP_SCALE_STEP = 1.25;
 
+/**
+ * Gradi per ogni tocco di ↺ o ↻.
+ *
+ * Quindici perche' 90 e 45 cadono sul passo, e sono gli angoli che si vogliono
+ * davvero; piu' fine servirebbe a poco toccando un pulsante.
+ */
+const BACKDROP_ROTATE_STEP = 15;
+
 /** Quanti passi indietro si possono fare. */
 const UNDO_LIMIT = 60;
 
@@ -224,6 +232,9 @@ export class LevelEditor {
   private paletteStrip!: HTMLDivElement;
   private backdropStrip!: HTMLDivElement;
   private backdropActions!: HTMLDivElement;
+  private backdropList!: HTMLDivElement;
+  private collapseButton!: HTMLButtonElement;
+  private backdropTitle!: HTMLElement;
   private chosenBackground = '';
 
   constructor(scene: Phaser.Scene, placement: GridPlacement, published: SerializedProject) {
@@ -1182,7 +1193,18 @@ export class LevelEditor {
     // spariscono, e lasciarlo selezionato in silenzio sarebbe uno stato
     // invisibile che riemerge tornando qui.
     if (tool !== 'backdrop') this.pickedBackground = undefined;
+    // Su telefono il pannello parte chiuso, e i comandi del fondale stanno
+    // dentro: scegliere lo strumento senza vederli sarebbe uno strumento che
+    // non fa niente. Si apre solo qui, e richiuderlo resta una decisione di
+    // chi lo usa.
+    else this.expandLayerPanel();
     this.refresh();
+  }
+
+  private expandLayerPanel(): void {
+    if (!this.layerPanel.classList.contains('collapsed')) return;
+    this.layerPanel.classList.remove('collapsed');
+    this.collapseButton.textContent = '▾';
   }
 
   // -------------------------------------------------------------- toolbar
@@ -1375,8 +1397,23 @@ export class LevelEditor {
       }
       #layer-panel .row .quota { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
       #layer-panel .actions { display: flex; gap: 4px; }
+      /* Il display flex batte l'attributo hidden, come per le due palette:
+         senza questa riga i comandi del fondale resterebbero sempre in vista. */
+      #layer-panel .actions[hidden] { display: none; }
       #layer-panel .actions button { flex: 1 1 0; min-height: 34px; padding: 0; }
-      #layer-panel.collapsed .list, #layer-panel.collapsed .actions { display: none; }
+      /* La seconda sezione del pannello: una riga sopra, e si comprime insieme
+         al resto. */
+      #layer-panel .sezione {
+        display: flex; flex-direction: column; gap: 6px;
+        padding-top: 8px; border-top: 1px solid #3a3a48;
+      }
+      #layer-panel .sezione .list {
+        flex-direction: column; max-height: 30vh; overflow-y: auto;
+      }
+      #layer-panel .sezione .row .name { flex: 1 1 auto; text-align: left; }
+      #layer-panel.collapsed .list,
+      #layer-panel.collapsed .actions,
+      #layer-panel.collapsed .sezione { display: none; }
       #layer-panel .hint { font-size: 11px; opacity: .6; }
 
       /* Schermo stretto o basso: vedi COMPATTO. La barra a parole occupava il
@@ -1495,24 +1532,6 @@ export class LevelEditor {
     this.selectionActions = document.createElement('div');
     this.selectionActions.className = 'group';
     tools.appendChild(this.selectionActions);
-
-    // I comandi del fondale compaiono solo con lo strumento 🖼 e un'immagine in
-    // mano: sono quattro pulsanti che il resto del tempo non servirebbero.
-    this.backdropActions = document.createElement('div');
-    this.backdropActions.className = 'group';
-    tools.appendChild(this.backdropActions);
-
-    const bd = this.backdropActions;
-    this.iconButton('－', 'Rimpicciolisci', () => this.scaleBackground(1 / BACKDROP_SCALE_STEP), bd)
-      .title = 'Rimpicciolisci il fondale';
-    this.iconButton('＋', 'Ingrandisci', () => this.scaleBackground(BACKDROP_SCALE_STEP), bd)
-      .title = 'Ingrandisci il fondale';
-    this.iconButton('⤓', 'Dietro', () => this.reorderBackground(-1), bd)
-      .title = 'Manda il fondale dietro agli altri';
-    this.iconButton('⤒', 'Avanti', () => this.reorderBackground(1), bd)
-      .title = 'Porta il fondale davanti agli altri fondali';
-    this.iconButton('🗑', 'Togli', () => this.removeBackground(), bd)
-      .title = 'Togli questo fondale dal livello';
 
     const box = this.selectionActions;
     this.copyButton = this.iconButton('⧉', 'Copia', () => this.copySelection(false), box);
@@ -1668,6 +1687,7 @@ export class LevelEditor {
       collapse.textContent = this.layerPanel.classList.contains('collapsed') ? '▸' : '▾';
     }, head);
     collapse.title = 'Comprimi il pannello';
+    this.collapseButton = collapse;
 
     // Dove lo schermo e' stretto o basso parte gia' chiuso: aperto occupa
     // 228x168 sopra la scena, proprio l'angolo in cui l'origine isometrica
@@ -1697,7 +1717,123 @@ export class LevelEditor {
     this.button('✎', () => this.renameActiveLayer(), actions).title = 'Rinomina il layer attivo';
     this.button('🗑', () => void this.deleteActiveLayer(), actions).title = 'Elimina il layer attivo';
 
+    this.buildBackdropSection();
     document.body.appendChild(this.layerPanel);
+  }
+
+  /**
+   * I fondali del livello, sotto ai layer e nello stesso pannello.
+   *
+   * Stanno qui e non nella barra per due ragioni. La prima e' che questo
+   * pannello **e' gia' la struttura del livello aperto** — i piani su cui si
+   * costruisce — e un fondale e' esattamente quello: contenuto di questo
+   * livello, non un comando dell'editor. La seconda e' che un elenco dice da
+   * solo che se ne puo' mettere piu' di uno, mentre con i soli pulsanti nella
+   * barra bisognava scoprirlo toccando un punto vuoto.
+   *
+   * I comandi di scala, rotazione e ordine sono qui sotto e non nella barra
+   * perche' la barra era cresciuta di 54px appena si prendeva un'immagine, e
+   * su telefono quello spazio e' la scena.
+   */
+  private buildBackdropSection(): void {
+    const section = document.createElement('div');
+    section.className = 'sezione';
+    this.layerPanel.appendChild(section);
+
+    const head = document.createElement('div');
+    head.className = 'head';
+    this.backdropTitle = document.createElement('strong');
+    this.backdropTitle.textContent = 'Fondali';
+    head.appendChild(this.backdropTitle);
+    section.appendChild(head);
+
+    this.button('+', () => this.addBackgroundAtCenter(), head).title =
+      'Aggiungi al centro della vista il fondale scelto nella palette';
+
+    this.backdropList = document.createElement('div');
+    this.backdropList.className = 'list';
+    section.appendChild(this.backdropList);
+
+    this.backdropActions = document.createElement('div');
+    this.backdropActions.className = 'actions';
+    section.appendChild(this.backdropActions);
+
+    const bd = this.backdropActions;
+    this.button('－', () => this.scaleBackground(1 / BACKDROP_SCALE_STEP), bd).title =
+      'Rimpicciolisci il fondale';
+    this.button('＋', () => this.scaleBackground(BACKDROP_SCALE_STEP), bd).title =
+      'Ingrandisci il fondale';
+    this.button('↺', () => this.rotateBackground(-BACKDROP_ROTATE_STEP), bd).title =
+      `Ruota di ${BACKDROP_ROTATE_STEP} gradi in senso antiorario`;
+    this.button('↻', () => this.rotateBackground(BACKDROP_ROTATE_STEP), bd).title =
+      `Ruota di ${BACKDROP_ROTATE_STEP} gradi in senso orario`;
+    this.button('⤓', () => this.reorderBackground(-1), bd).title =
+      'Manda il fondale dietro agli altri';
+    this.button('⤒', () => this.reorderBackground(1), bd).title =
+      'Porta il fondale davanti agli altri fondali';
+    this.button('🗑', () => this.removeBackground(), bd).title =
+      'Togli questo fondale dal livello';
+  }
+
+  /**
+   * Ricostruisce l'elenco dei fondali. Come per i layer: sono pochi, e rifarlo
+   * e' piu' sicuro che aggiornarlo.
+   */
+  private refreshBackdrops(): void {
+    const labels = this.scene.backdrop.labels();
+    this.backdropTitle.textContent = labels.length > 0 ? `Fondali (${labels.length})` : 'Fondali';
+
+    this.backdropList.textContent = '';
+    if (labels.length === 0) {
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent = 'Nessuno. Con 🖼 tocca la scena, o usa +';
+      this.backdropList.appendChild(hint);
+    }
+
+    // Dall'ultimo al primo: in cima all'elenco c'e' quello disegnato davanti,
+    // come per i layer.
+    for (let i = labels.length - 1; i >= 0; i--) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const pick = this.button(labels[i]!, () => this.chooseBackground(i), row);
+      pick.className = 'name';
+      pick.setAttribute('aria-pressed', String(i === this.pickedBackground));
+      this.backdropList.appendChild(row);
+    }
+
+    this.backdropActions.hidden = this.pickedBackground === undefined;
+  }
+
+  /** Sceglie un fondale dall'elenco, e passa allo strumento che lo manovra. */
+  private chooseBackground(index: number): void {
+    this.pickedBackground = index;
+    if (this.tool !== 'backdrop') this.setTool('backdrop');
+    else this.refresh();
+  }
+
+  /**
+   * Aggiunge un fondale al centro di quello che si sta guardando.
+   *
+   * E' la via alternativa al tocco sulla scena, e serve quando la vista e'
+   * gia' coperta da un'altra immagine: li' il tocco prenderebbe quella.
+   */
+  private addBackgroundAtCenter(): void {
+    if (this.chosenBackground === '') return;
+    const cam = this.scene.cameras.main;
+    const center = cam.getWorldPoint(this.scene.scale.width / 2, this.scene.scale.height / 2);
+
+    this.edit(() => {
+      const index = this.scene.backdrop.add(this.chosenBackground, center.x, center.y);
+      if (index >= 0) this.pickedBackground = index;
+    });
+    if (this.tool !== 'backdrop') this.setTool('backdrop');
+  }
+
+  private rotateBackground(degrees: number): void {
+    const index = this.pickedBackground;
+    if (index === undefined) return;
+    this.edit(() => this.scene.backdrop.rotateBy(index, degrees));
   }
 
   private renameActiveLayer(): void {
@@ -1861,7 +1997,7 @@ export class LevelEditor {
     for (const [id, button] of this.backgroundButtons) {
       button.setAttribute('aria-pressed', String(this.chosenBackground === id));
     }
-    this.backdropActions.hidden = !fondali || this.pickedBackground === undefined;
+
     for (const [tool, button] of this.toolButtons) {
       button.setAttribute('aria-pressed', String(this.tool === tool));
 
@@ -1913,5 +2049,6 @@ export class LevelEditor {
 
     this.refreshTabs();
     this.refreshLayers();
+    this.refreshBackdrops();
   }
 }

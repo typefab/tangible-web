@@ -102,7 +102,9 @@ test.describe('barra su telefono', () => {
     await expect(pannello).toHaveClass(/collapsed/);
     expect(await altezza(page, '#layer-panel')).toBeLessThan(70);
 
-    await pannello.locator('.head button').last().click();
+    // Il figlio diretto: da quando c'e' la sezione dei fondali, dentro al
+    // pannello ci sono due `.head`, e l'altra e' quella che aggiunge un fondale.
+    await pannello.locator('> .head button').last().click();
     await expect(pannello).not.toHaveClass(/collapsed/);
     await expect(pannello.locator('.row').first()).toBeVisible();
   });

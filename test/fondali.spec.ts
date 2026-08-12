@@ -89,15 +89,15 @@ test.describe('fondali', () => {
     await page.mouse.click(450, 300);
     expect((await fondali(page))[0].scale).toBe(1);
 
-    await page.click('#editor-toolbar button[title="Ingrandisci il fondale"]');
+    await page.click('#layer-panel button[title="Ingrandisci il fondale"]');
     expect((await fondali(page))[0].scale).toBeGreaterThan(1);
 
-    await page.click('#editor-toolbar button[title="Rimpicciolisci il fondale"]');
+    await page.click('#layer-panel button[title="Rimpicciolisci il fondale"]');
     expect((await fondali(page))[0].scale).toBeCloseTo(1, 2);
   });
 
   test('i comandi compaiono solo con un fondale in mano', async ({ page }) => {
-    const comandi = page.locator('#editor-toolbar button[title="Togli questo fondale dal livello"]');
+    const comandi = page.locator('#layer-panel button[title="Togli questo fondale dal livello"]');
     await expect(comandi).toBeHidden();
 
     await page.mouse.click(450, 300);
@@ -145,6 +145,89 @@ test.describe('fondali', () => {
     // Arrotondati: un fondale trascinato col dito darebbe sette decimali per
     // riga, e il diff del file va letto a mano.
     expect(Number.isInteger(con.levels[0].backgrounds[0].x)).toBe(true);
+  });
+
+  test('l\'elenco nel pannello dice quanti ce ne sono e quale si sta manovrando', async ({
+    page,
+  }) => {
+    const righe = page.locator('#layer-panel .sezione .row');
+    await expect(page.locator('#layer-panel .sezione .head strong')).toHaveText('Fondali');
+    await expect(righe).toHaveCount(0);
+
+    await page.mouse.click(450, 300);
+    await expect(page.locator('#layer-panel .sezione .head strong')).toHaveText('Fondali (1)');
+    await expect(righe).toHaveCount(1);
+    await expect(righe.first().locator('.name')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('col + se ne aggiunge un altro anche quando il primo copre tutto', async ({ page }) => {
+    // E' il caso vero, non un dettaglio: un fondale grande occupa quasi tutto
+    // lo schermo, e da li' in poi ogni tocco prende quello invece di
+    // aggiungerne uno. Senza il + nel pannello, il secondo fondale sarebbe
+    // praticamente impossibile da mettere.
+    await page.mouse.click(450, 300);
+    await page.mouse.click(430, 320);
+    expect(await fondali(page)).toHaveLength(1);
+
+    await page.click('#layer-panel .sezione .head button');
+    expect(await fondali(page)).toHaveLength(2);
+    await expect(page.locator('#layer-panel .sezione .row')).toHaveCount(2);
+  });
+
+  test('si ruota, e i gradi finiscono nel file solo se non sono zero', async ({ page }) => {
+    await page.mouse.click(450, 300);
+    expect((await fondali(page))[0].rotation).toBeUndefined();
+
+    await page.click('#layer-panel button[title^="Ruota di 15 gradi in senso orario"]');
+    expect((await fondali(page))[0].rotation).toBe(15);
+
+    await page.click('#layer-panel button[title^="Ruota di 15 gradi in senso antiorario"]');
+    // Tornato a zero: la chiave sparisce invece di restare a 0 nel file.
+    expect((await fondali(page))[0].rotation).toBeUndefined();
+
+    // Sotto zero si gira dall'altra parte, non si va in negativo.
+    await page.click('#layer-panel button[title^="Ruota di 15 gradi in senso antiorario"]');
+    expect((await fondali(page))[0].rotation).toBe(345);
+  });
+
+  test('la rotazione si annulla con Ctrl+Z', async ({ page }) => {
+    await page.mouse.click(450, 300);
+    await page.click('#layer-panel button[title^="Ruota di 15 gradi in senso orario"]');
+    expect((await fondali(page))[0].rotation).toBe(15);
+
+    await page.keyboard.press('Control+z');
+    expect((await fondali(page))[0].rotation).toBeUndefined();
+  });
+
+  test('dall\'elenco si sceglie quale manovrare', async ({ page }) => {
+    await page.mouse.click(450, 300);
+    await page.click('#layer-panel .sezione .head button');
+    // Il piu' recente e' in cima all'elenco, come per i layer: e' quello
+    // disegnato davanti.
+    const righe = page.locator('#layer-panel .sezione .row .name');
+    await expect(righe.first()).toHaveAttribute('aria-pressed', 'true');
+
+    await righe.nth(1).click();
+    await expect(righe.nth(1)).toHaveAttribute('aria-pressed', 'true');
+    await expect(righe.first()).toHaveAttribute('aria-pressed', 'false');
+
+    // E i comandi agiscono su quello scelto, non sull'ultimo aggiunto.
+    await page.click('#layer-panel button[title^="Ruota di 15 gradi in senso orario"]');
+    const dopo = await fondali(page);
+    expect(dopo[0].rotation).toBe(15);
+    expect(dopo[1].rotation).toBeUndefined();
+  });
+
+  test('scegliendo lo strumento il pannello si apre, se era chiuso', async ({ page }) => {
+    // I comandi del fondale vivono nel pannello: su telefono parte chiuso, e
+    // uno strumento che non mostra i suoi comandi sembra non fare niente.
+    await page.setViewportSize({ width: 390, height: 780 });
+    await page.reload();
+    await page.waitForFunction(() => window.game?.scene?.keys?.GameScene?.editor !== undefined);
+    await expect(page.locator('#layer-panel')).toHaveClass(/collapsed/);
+
+    await tool(page, 'Fondale').click();
+    await expect(page.locator('#layer-panel')).not.toHaveClass(/collapsed/);
   });
 
   test('cambiando livello il fondale resta sul suo', async ({ page }) => {

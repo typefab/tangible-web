@@ -39,6 +39,12 @@ export interface SerializedBackground {
   x: number;
   y: number;
   scale: number;
+  /**
+   * Gradi, in senso orario. Assente quando e' zero, che e' il caso normale:
+   * la stessa ragione per cui `backgrounds` non compare nei livelli che non ne
+   * hanno — un file non deve riempirsi di campi a zero.
+   */
+  rotation?: number;
 }
 
 export interface SerializedLevel {
@@ -115,7 +121,14 @@ function normalizeBackgrounds(raw: unknown): SerializedBackground[] {
     // Una scala nulla o negativa darebbe un'immagine invisibile o ribaltata:
     // e' piu' probabile un file scritto male che un'intenzione.
     const scale = typeof entry.scale === 'number' && entry.scale > 0 ? entry.scale : 1;
-    items.push({ id: entry.id, x: entry.x, y: entry.y, scale });
+    const item: SerializedBackground = { id: entry.id, x: entry.x, y: entry.y, scale };
+    // Riportata dentro il giro: un file scritto a mano con 400 gradi non deve
+    // dare un'immagine che si comporta diversamente da una a 40.
+    if (typeof entry.rotation === 'number' && Number.isFinite(entry.rotation)) {
+      const rotation = ((entry.rotation % 360) + 360) % 360;
+      if (rotation !== 0) item.rotation = rotation;
+    }
+    items.push(item);
   }
   return items;
 }
