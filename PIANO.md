@@ -358,6 +358,59 @@ Tre dettagli che non erano ovvi:
 - **su telefono il pannello dei layer parte chiuso.** Si apre quando serve,
   invece di coprire l'angolo in cui si sta costruendo.
 
+### I fondali non sono blocchi
+
+La richiesta era mettere immagini dietro alla scena, e la proposta di partenza
+era: un layer per immagine, l'immagine come oggetto dentro il layer. Meta' di
+quell'idea e' giusta — un fondale ha bisogno esattamente di **ordine** e
+**interruttore**, che i layer gia' danno — ma l'altra meta' costava troppo:
+
+| Se il fondale fosse un blocco in un layer | Prezzo |
+|---|---|
+| ha `x`, `y` e scala libere, non una cella | pennello, gomma, selezione e appunti girano **tutti** per celle: ognuno impara un caso speciale |
+| un'immagine per layer | i layer sono 8, e il numero non e' arbitrario: `max * depthStep` deve restare sotto `Z.playerDepthBias` |
+| il layer ha una quota | per un'immagine non vuol dire niente, e resta un numero da ignorare |
+
+Quindi i fondali sono un **elenco dentro il livello**, non blocchi:
+`{ id, x, y, scale }`. Gli strumenti a celle non hanno imparato niente, e le
+immagini si possono mettere quante se ne vuole senza consumare i piani su cui
+si costruisce.
+
+La cartella e' `src/assets/backgrounds/` e vale la stessa promessa dei blocchi:
+carichi un file, fai commit, compare nella palette. Accetta anche `jpg` e
+`webp`, perche' un cielo in PNG pesa quanto tutto il resto del gioco.
+
+**Il pareggio di profondita', di nuovo.** La prima versione metteva i fondali a
+`-1000`, dove stavano gia' le linee della griglia. A parita' di profondita'
+decide l'ordine di creazione, quindi il fondale copriva la griglia — cioe' si
+sarebbe costruito alla cieca. Ora le bande sono esplicite in `Z`, e la
+relazione fra loro e' scritta:
+
+| Profondita' | Cosa |
+|---|---|
+| da -2000 | fondali |
+| -1000 | griglia, **sopra** ai fondali |
+| da 0 | blocchi e player, `col + row` |
+
+E' la seconda volta che un pareggio di profondita' costa un difetto: la prima
+era il player sulla propria cella.
+
+Dettagli che vengono dall'uso e non dal disegno:
+
+- **il tocco prende il fondale che c'e', o ne mette uno se non c'e'.** Nessuna
+  modalita' fra "aggiungi" e "sposta": e' la stessa regola della selezione, dove
+  il dito dentro l'area la sposta e fuori ne comincia un'altra.
+- **si prende dal punto toccato**, tenendo lo scarto dal centro: agganciandolo
+  al centro, un'immagine presa per un angolo salterebbe di mezzo schermo al
+  primo movimento.
+- il trascinamento e' **un solo `Ctrl+Z`**, come una pennellata: stesso
+  meccanismo di `strokeStart`.
+- lo strumento **scambia la palette** invece di aggiungerne una: e' la stessa
+  domanda — cosa piazzo — fatta da due strumenti diversi, e due strisce insieme
+  costerebbero una riga di schermo.
+- la chiave `backgrounds` **non compare** nei livelli che non ne hanno: un
+  `level.json` fatto prima, riaperto e riscritto, resta identico byte a byte.
+
 ### Cento livelli: catalogo e schede sono due cose diverse
 
 Le schede elencavano **tutti** i livelli. Con due va bene; con venti la striscia
@@ -497,7 +550,8 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Apertura file | `editor/LevelEditor.ts` | legge un `level.json` dal dispositivo, annullabile |
 | Formato progetto | `level/project.ts` | piu' livelli in un file; i livelli sono valori immutabili |
 | Catalogo dei livelli | `editor/LevelBrowser.ts` | elenco con ricerca; le schede sono solo gli aperti |
-| Test | `test/`, `playwright.config.ts` | 75 test sul gioco che gira, in CI a ogni push |
+| Fondali | `scenes/Backdrop.ts` | immagini dietro la scena, per livello; strumento 🖼 nell'editor |
+| Test | `test/`, `playwright.config.ts` | 86 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
@@ -689,6 +743,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | Quota e altezza dello sprite scollegate | Un passo di quota vale `tileHeight` (32px), ma gli sprite dei blocchi sono piu' alti della cella. Su arte isometrica vera i due numeri devono coincidere, altrimenti restano fessure o sovrapposizioni |
 | Il sito e' pubblico, e con lui gli sprite | Un gioco web manda le immagini al browser che lo gioca: "sprite privati" e "link pubblico" non possono essere veri insieme. Se serve riservatezza, l'unica leva e' chi puo' aprire la pagina |
 | 51 PNG inutilizzati nel deploy | Archivio in `public/assets/`. Da togliere quando Fabrizio conferma |
+| **Il peso dei fondali** | Un blocco pesa 300 byte, un fondale a schermo intero puo' pesarne un milione. Finiscono nel sito **e nell'APK**, e chi apre la pagina se li scarica. Vanno tenuti piccoli, in `jpg` o `webp` |
 | **Salva non porta il lavoro nel gioco** | Salva scrive in `localStorage`, solo Scarica + upload su GitHub aggiorna il gioco. La UI lo dice in tre punti, ma resta il modo piu' facile di perdere una serata |
 | **`localStorage` sta in ~5 MB** | Un progetto da cento livelli pieni ci arriva (~2 MB, ma cresce). Ora Salva lo dice invece di fingere, e resta Scarica; la soluzione vera e' IndexedDB |
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |

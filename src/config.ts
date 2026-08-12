@@ -110,6 +110,26 @@ export const JOYSTICK = {
 } as const;
 
 export const Z = {
+  /**
+   * Sotto zero ci sono due bande, e l'ordine fra loro conta:
+   *
+   * | Profondita' | Cosa | Perche' |
+   * |---|---|---|
+   * | da -2000 | fondali | dietro a tutto |
+   * | -1000 | griglia | **sopra** ai fondali: si costruisce guardandola |
+   * | da 0 | blocchi e player | `col + row` |
+   *
+   * La griglia stava gia' a -1000 quando i fondali sono arrivati, e la prima
+   * versione li ha messi allo stesso numero: a parita' di profondita' decide
+   * l'ordine di creazione, quindi il fondale copriva la griglia. Un pareggio
+   * non e' un ordine, e qui e' la seconda volta che se ne paga uno.
+   *
+   * Fra loro i fondali si ordinano per posizione nell'elenco: mille immagini
+   * nello stesso livello prima di toccare la griglia.
+   */
+  background: -2000,
+  /** Le linee della griglia: sopra ai fondali, sotto a tutto il resto. */
+  grid: -1000,
   /** Sempre sopra i blocchi ordinati per profondita'. */
   placeHitbox: 9999,
   /**

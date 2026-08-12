@@ -24,9 +24,31 @@ export interface SerializedLayer {
   blocks: SerializedBlock[];
 }
 
+/**
+ * Un'immagine di fondale piazzata nel livello.
+ *
+ * **Non e' un blocco**, e non poteva esserlo: i blocchi stanno in una cella, e
+ * pennello, gomma, selezione e appunti girano tutti per celle. Un'immagine ha
+ * posizione e scala libere, quindi vive in un elenco suo — cosi' quegli
+ * strumenti continuano a vedere solo celle e non imparano un caso speciale.
+ *
+ * `x` e `y` sono il centro, in coordinate del mondo.
+ */
+export interface SerializedBackground {
+  id: string;
+  x: number;
+  y: number;
+  scale: number;
+}
+
 export interface SerializedLevel {
   name: string;
   layers: SerializedLayer[];
+  /**
+   * Assente quando non ce ne sono, e non un array vuoto: un `level.json` fatto
+   * prima dei fondali, riaperto e riscritto, deve restare identico byte a byte.
+   */
+  backgrounds?: SerializedBackground[];
 }
 
 export interface SerializedProject {
@@ -81,15 +103,35 @@ function isBlock(raw: unknown): boolean {
   );
 }
 
+/** Scarta quello che non e' un fondale scritto bene, invece di far saltare tutto. */
+function normalizeBackgrounds(raw: unknown): SerializedBackground[] {
+  if (!Array.isArray(raw)) return [];
+
+  const items: SerializedBackground[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    if (typeof entry.id !== 'string' || entry.id === '') continue;
+    if (typeof entry.x !== 'number' || typeof entry.y !== 'number') continue;
+    // Una scala nulla o negativa darebbe un'immagine invisibile o ribaltata:
+    // e' piu' probabile un file scritto male che un'intenzione.
+    const scale = typeof entry.scale === 'number' && entry.scale > 0 ? entry.scale : 1;
+    items.push({ id: entry.id, x: entry.x, y: entry.y, scale });
+  }
+  return items;
+}
+
 function normalizeLevel(raw: unknown, index: number): SerializedLevel {
   if (!isRecord(raw)) return emptyLevel(`Livello ${index + 1}`);
 
   const layers = Array.isArray(raw.layers) ? raw.layers.slice(0, LAYERS.max).map(normalizeLayer) : [];
-  return {
+  const backgrounds = normalizeBackgrounds(raw.backgrounds);
+  const level: SerializedLevel = {
     name: typeof raw.name === 'string' && raw.name !== '' ? raw.name : `Livello ${index + 1}`,
     // Un livello senza piani non e' modificabile: non ci sarebbe dove disegnare.
     layers: layers.length > 0 ? layers : [emptyLayer()],
   };
+  if (backgrounds.length > 0) level.backgrounds = backgrounds;
+  return level;
 }
 
 /**

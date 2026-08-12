@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { GRID, ISO, TIMING, Z, RANGES, INVENTORY } from '../config';
-import { BLOCKS, CHARACTERS, UI, blockLabel } from '../assets/catalog';
+import { BACKGROUNDS, BLOCKS, CHARACTERS, UI, blockLabel } from '../assets/catalog';
 import { projection } from '../grid/projection';
 import { GridPlacement } from '../mechanics/GridPlacement';
+import { Backdrop } from './Backdrop';
 import { normalizeProject, pickLevel, type SerializedProject } from '../level/project';
 import { Player } from '../mechanics/Player';
 import { VirtualJoystick } from '../mechanics/VirtualJoystick';
@@ -17,6 +18,8 @@ const EDITOR_MODE = PARAMS.has('editor');
 
 export class GameScene extends Phaser.Scene {
   private placement!: GridPlacement;
+  /** I fondali del livello montato. Pubblico: e' l'editor a piazzarli. */
+  backdrop!: Backdrop;
   /** Tutti i livelli del file: il gioco ne monta uno, l'editor li apre tutti. */
   private project!: SerializedProject;
   /** Le celle sono rombi, quindi l'evidenziazione e' un poligono, non un rettangolo. */
@@ -44,7 +47,7 @@ export class GameScene extends Phaser.Scene {
    * questa funzione cambi.
    */
   preload(): void {
-    for (const asset of [...BLOCKS, ...CHARACTERS, ...UI]) {
+    for (const asset of [...BLOCKS, ...BACKGROUNDS, ...CHARACTERS, ...UI]) {
       this.load.image(asset.id, asset.url);
     }
     this.load.json('level', 'level.json');
@@ -54,6 +57,7 @@ export class GameScene extends Phaser.Scene {
     this.drawGrid();
 
     this.placement = new GridPlacement(this);
+    this.backdrop = new Backdrop(this);
     this.loadLevel();
 
     // Anteprima della cella sotto il dito/mouse.
@@ -142,7 +146,7 @@ export class GameScene extends Phaser.Scene {
    * compresi, senza sapere che forma abbiano.
    */
   private drawGrid(): void {
-    this.gridLines = this.add.graphics().setDepth(-1000);
+    this.gridLines = this.add.graphics().setDepth(Z.grid);
     this.gridLines.lineStyle(1, 0x2f2f3d, 1);
 
     for (let row = GRID.drawFrom; row <= GRID.drawTo; row++) {
@@ -188,7 +192,11 @@ export class GameScene extends Phaser.Scene {
    */
   private loadLevel(): void {
     this.project = normalizeProject(this.cache.json.get('level'));
-    this.placement.loadLayers(pickLevel(this.project, PARAMS.get('level')).layers);
+    const level = pickLevel(this.project, PARAMS.get('level'));
+    this.placement.loadLayers(level.layers);
+    // Anche in gioco, non solo in editor: e' la stessa ragione per cui
+    // l'editor disegna attraverso questa scena.
+    this.backdrop.load(level.backgrounds);
   }
 
   private bindInput(): void {

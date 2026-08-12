@@ -130,6 +130,24 @@ in cima all'elenco e' quello disegnato davanti.
 - **+** aggiunge un piano (max 8), **▲ ▼** lo riordinano, **✎** lo rinomina,
   **🗑** lo elimina con i suoi blocchi
 
+**Mettere un'immagine di sfondo** — **🖼 Fondale** (`F`)
+
+- la palette cambia e mostra le **immagini** invece dei blocchi
+- **tocca la scena** per metterne una li'. Toccarne una gia' messa la prende,
+  invece di metterne un'altra sopra
+- **trascina** per spostarla, **－ ＋** per rimpicciolirla e ingrandirla
+- **⤓ ⤒** cambiano l'ordine fra due immagini che si sovrappongono, **🗑** la
+  toglie (`Canc` fa lo stesso, `Esc` la molla)
+
+I fondali stanno **dietro a tutto**, anche dietro alla griglia, e appartengono
+al livello: ogni livello ha i suoi. Non sono blocchi, quindi pennello, gomma e
+selezione non li toccano.
+
+Per aggiungerne di nuovi: carica un'immagine in **`src/assets/backgrounds/`** e
+fai commit — stessa promessa dei blocchi, compare da sola nella palette. Vanno
+bene `png`, `jpg` e `webp`. **Tienile leggere**: finiscono nel sito e nell'APK,
+e un fondale a schermo intero pesa quanto migliaia di blocchi.
+
 **I livelli**
 
 Un solo `level.json` li contiene tutti, anche cento. Due cose diverse:
@@ -236,6 +254,8 @@ quindi da `public/` servirebbe un elenco scritto a mano.
   copia/taglia/incolla anche fra schede
 - **Due dita** per spostarsi e ingrandire, in qualsiasi strumento
 - **Contagocce**: tieni premuto un blocco e il suo tipo torna in mano
+- **Fondali**: immagini dietro la scena, una per livello o quante ne vuoi,
+  spostabili e ridimensionabili
 - **Barra pensata per il telefono**: i comandi rari stanno dietro **⋯**, e alla
   scena resta piu' di due terzi dello schermo
 

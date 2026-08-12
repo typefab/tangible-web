@@ -28,6 +28,7 @@ piu', controlla che non violi uno di questi.
 | | File | Chi |
 |---|---|---|
 | Sprite dei blocchi | `src/assets/blocks/*.png` | **Fabrizio** |
+| Fondali | `src/assets/backgrounds/*` | **Fabrizio** |
 | Personaggio, interfaccia | `src/assets/characters/`, `src/assets/ui/` | **Fabrizio** |
 | Livelli | `public/level.json` | **Fabrizio**, dall'editor |
 | Editor | `src/editor/`, `src/level/` | codice |
@@ -54,6 +55,15 @@ conversazione, non una modifica.
 - **`src/grid/projection.ts` e' l'unico posto che sa che forma abbia una cella.**
   Nessun altro file deve calcolare coordinate isometriche. Cambiare proiezione
   deve restare una riga.
+- **Un `SerializedLevel` non si modifica mai sul posto: si sostituisce.** E'
+  quello che rende gli snapshot dell'undo indipendenti dal numero di livelli —
+  i livelli fermi ci finiscono per riferimento invece che ricopiati. Scrivere
+  un campo addosso a un livello cambia anche il passato che sta nella
+  cronologia.
+- **Un fondale non e' un blocco.** I blocchi stanno in una cella e tutti gli
+  strumenti girano per celle; i fondali hanno posizione e scala libere e vivono
+  in un elenco separato del livello. Se un giorno sembrasse comodo metterli fra
+  i blocchi, il prezzo lo pagano pennello, gomma, selezione e appunti.
 - **I tipi di blocco vengono dalle cartelle**, via `src/assets/catalog.ts`. Non
   reintrodurre un elenco scritto a mano: la promessa e' "carichi un PNG, fai
   commit, compare".
