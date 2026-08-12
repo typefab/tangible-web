@@ -41,6 +41,19 @@ const characterFiles = import.meta.glob('./characters/*.png', {
   import: 'default',
 }) as UrlModules;
 
+/**
+ * I fondali. Stessa promessa dei blocchi: un PNG in `src/assets/backgrounds/`,
+ * un commit, e compare nella palette dello strumento 🖼.
+ *
+ * `jpg` e `webp` oltre a `png` perche' un fondale e' grande: un cielo in PNG
+ * pesa quanto tutto il resto del gioco messo insieme.
+ */
+const backgroundFiles = import.meta.glob('./backgrounds/*.{png,jpg,jpeg,webp}', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+}) as UrlModules;
+
 const uiFiles = import.meta.glob('./ui/*.png', {
   eager: true,
   query: '?url',
@@ -72,6 +85,9 @@ function catalogOf(files: UrlModules): AssetDef[] {
 
 /** Tutti i blocchi piazzabili, cioe' tutti i PNG in `src/assets/blocks/`. */
 export const BLOCKS: readonly AssetDef[] = catalogOf(blockFiles);
+
+/** Tutti i fondali piazzabili, cioe' tutte le immagini in `src/assets/backgrounds/`. */
+export const BACKGROUNDS: readonly AssetDef[] = catalogOf(backgroundFiles);
 
 /** Personaggi e interfaccia: qui l'elenco serve solo a risolvere gli URL. */
 export const CHARACTERS: readonly AssetDef[] = catalogOf(characterFiles);
@@ -110,6 +126,19 @@ export function canonicalBlockId(id: string): string | undefined {
 
 export function blockLabel(id: string): string {
   return resolveBlock(id)?.label ?? id;
+}
+
+const backgroundsById = new Map(BACKGROUNDS.map((b) => [b.id, b]));
+
+/**
+ * Risolve l'id di un fondale letto da `level.json`.
+ *
+ * Come per i blocchi, l'elenco esiste solo dopo la build: un file che nomina
+ * un'immagine cancellata dal repository va scartato a runtime, non puo'
+ * accorgersene il compilatore.
+ */
+export function resolveBackground(id: string): AssetDef | undefined {
+  return backgroundsById.get(id);
 }
 
 /** L'URL di uno sprite non-blocco, per nome del file. */

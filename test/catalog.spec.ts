@@ -19,7 +19,7 @@ test('la palette contiene esattamente i PNG di src/assets/blocks/', async ({ pag
 
   await openEditor(page);
   const nellaPalette = await page.evaluate(() =>
-    [...document.querySelectorAll('#editor-toolbar button.palette')].map((b) =>
+    [...document.querySelectorAll('#editor-toolbar .palette-strip:not(.fondali) button.palette')].map((b) =>
       b.getAttribute('title'),
     ),
   );
@@ -35,7 +35,9 @@ test('ogni blocco della palette ha un\'anteprima vera, presa dal gioco', async (
   await openEditor(page);
 
   const anteprime = await page.evaluate(() =>
-    [...document.querySelectorAll<HTMLImageElement>('#editor-toolbar button.palette img')].map(
+    [...document.querySelectorAll<HTMLImageElement>(
+      '#editor-toolbar .palette-strip:not(.fondali) button.palette img',
+    )].map(
       (img) => ({ dati: img.src.startsWith('data:image/'), largo: img.naturalWidth }),
     ),
   );

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GRID, LAYERS, type BlockType } from '../config';
-import { BLOCKS } from '../assets/catalog';
+import { BACKGROUNDS, BLOCKS } from '../assets/catalog';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import {
   emptyLevel,
@@ -13,6 +13,7 @@ import { SelectionTool, type Picked } from './SelectionTool';
 import { EditorStorage, describeWhen } from './EditorStorage';
 import { chooseDialog } from './dialog';
 import { LevelBrowser, type BrowserLevel } from './LevelBrowser';
+import type { Backdrop } from '../scenes/Backdrop';
 
 /**
  * Modalita' editor: si attiva aggiungendo ?editor=1 all'URL.
@@ -35,6 +36,7 @@ interface GameSceneLike extends Phaser.Scene {
   readonly gridVisible: boolean;
   /** La cella sotto il puntatore, gia' corretta per l'alzata del layer attivo. */
   cellUnder(p: Phaser.Input.Pointer): { col: number; row: number };
+  readonly backdrop: Backdrop;
   readonly activeElevationY: number;
 }
 
@@ -48,7 +50,7 @@ interface GameSceneLike extends Phaser.Scene {
  */
 type Snapshot = { project: SerializedProject; level: number; layer: number };
 
-const TOOLS = ['brush', 'erase', 'select', 'pan'] as const;
+const TOOLS = ['brush', 'erase', 'select', 'backdrop', 'pan'] as const;
 type Tool = (typeof TOOLS)[number];
 
 /** Icona e parola separate: su schermo stretto resta solo l'icona. */
@@ -56,6 +58,7 @@ const TOOL_LABELS: Record<Tool, [icon: string, text: string]> = {
   brush: ['🖌', 'Pennello'],
   erase: ['🧽', 'Gomma'],
   select: ['⬚', 'Seleziona'],
+  backdrop: ['🖼', 'Fondale'],
   pan: ['✋', 'Sposta'],
 };
 
@@ -73,8 +76,12 @@ const TOOL_KEYS: Record<string, Tool> = {
   b: 'brush',
   e: 'erase',
   s: 'select',
+  f: 'backdrop',
   h: 'pan',
 };
+
+/** Di quanto cresce o cala un fondale a ogni tocco di − o +. */
+const BACKDROP_SCALE_STEP = 1.25;
 
 /** Quanti passi indietro si possono fare. */
 const UNDO_LIMIT = 60;
@@ -127,6 +134,7 @@ export class LevelEditor {
   private countLabel!: HTMLSpanElement;
   private statusLabel!: HTMLSpanElement;
   private paletteButtons = new Map<BlockType, HTMLButtonElement>();
+  private backgroundButtons = new Map<string, HTMLButtonElement>();
   private toolButtons = new Map<Tool, HTMLButtonElement>();
   private undoButton!: HTMLButtonElement;
   private redoButton!: HTMLButtonElement;
@@ -204,6 +212,20 @@ export class LevelEditor {
   private press: { x: number; y: number; type: BlockType } | null = null;
   private pressTimer: number | null = null;
 
+  /**
+   * Il fondale che si sta manovrando, e da dove lo si e' preso.
+   *
+   * Si tiene lo scarto fra il dito e il centro dell'immagine, non la posizione
+   * assoluta: senza, il primo movimento farebbe saltare il fondale col centro
+   * sotto il dito, anche avendolo toccato in un angolo.
+   */
+  private pickedBackground?: number;
+  private backgroundGrab: { dx: number; dy: number } | null = null;
+  private paletteStrip!: HTMLDivElement;
+  private backdropStrip!: HTMLDivElement;
+  private backdropActions!: HTMLDivElement;
+  private chosenBackground = '';
+
   constructor(scene: Phaser.Scene, placement: GridPlacement, published: SerializedProject) {
     this.scene = scene as GameSceneLike;
     this.placement = placement;
@@ -252,11 +274,31 @@ export class LevelEditor {
    */
   private project(): SerializedProject {
     const levels = this.levels.slice();
-    levels[this.activeLevelIndex] = {
+    const active: SerializedLevel = {
       name: this.levels[this.activeLevelIndex]!.name,
       layers: this.placement.serializeLayers(),
     };
+    // La chiave resta assente quando non ci sono fondali: un level.json fatto
+    // prima di questa funzione, riaperto e riscritto, non deve cambiare.
+    const backgrounds = this.scene.backdrop.serialize();
+    if (backgrounds.length > 0) active.backgrounds = backgrounds;
+    levels[this.activeLevelIndex] = active;
     return { levels };
+  }
+
+  /**
+   * Monta nella scena il livello attivo: blocchi **e** fondali.
+   *
+   * Esiste per non avere due chiamate da ricordare. Il livello si monta da sei
+   * punti diversi — apertura, cambio scheda, nuovo, duplica, elimina, undo — e
+   * dimenticare i fondali in uno solo darebbe un difetto che si vede solo in
+   * quel percorso: la strada piu' comoda per un bug intermittente.
+   */
+  private mountLevel(): void {
+    const level = this.levels[this.activeLevelIndex]!;
+    this.placement.loadLayers(level.layers);
+    this.scene.backdrop.load(level.backgrounds);
+    this.pickedBackground = undefined;
   }
 
   /** Sostituisce tutto il progetto e apre il livello indicato. */
@@ -267,7 +309,7 @@ export class LevelEditor {
     // puntavano a livelli che non esistono piu'.
     this.openLevels = (open ?? []).filter((i) => i >= 0 && i < this.levels.length);
     this.markOpen(this.activeLevelIndex);
-    this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
+    this.mountLevel();
     this.selection.clear();
     this.refresh();
   }
@@ -293,7 +335,7 @@ export class LevelEditor {
     this.levels = this.project().levels;
     this.activeLevelIndex = index;
     this.markOpen(index);
-    this.placement.loadLayers(this.levels[index]!.layers);
+    this.mountLevel();
     this.selection.clear();
     // La cronologia resta valida: gli snapshot contengono il progetto intero,
     // quindi un undo dopo il cambio scheda riporta anche alla scheda giusta.
@@ -359,7 +401,7 @@ export class LevelEditor {
       // In fondo: nessun indice esistente si sposta.
       this.activeLevelIndex = this.levels.length - 1;
       this.markOpen(this.activeLevelIndex);
-      this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
+      this.mountLevel();
       this.selection.clear();
     });
   }
@@ -379,7 +421,7 @@ export class LevelEditor {
       this.remapOpen((i) => (i > index ? i + 1 : i));
       this.activeLevelIndex = index + 1;
       this.markOpen(this.activeLevelIndex);
-      this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
+      this.mountLevel();
       this.selection.clear();
     });
   }
@@ -454,7 +496,7 @@ export class LevelEditor {
       // Se si e' eliminato l'ultimo livello aperto, quello su cui si atterra
       // prende comunque una scheda: la scena ne disegna sempre uno.
       this.markOpen(this.activeLevelIndex);
-      this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
+      this.mountLevel();
       this.selection.clear();
     });
   }
@@ -580,6 +622,15 @@ export class LevelEditor {
         return;
       }
 
+      if (this.tool === 'backdrop') {
+        // Come per le tracce: lo stato di partenza si cattura qui e si impila
+        // solo alla fine, cosi' un trascinamento e' un solo Ctrl+Z.
+        this.strokeStart = this.snapshot();
+        this.strokeWasDirty = this.dirty;
+        this.touchBackdrop(p);
+        return;
+      }
+
       // Lo stato di partenza si cattura qui e si impila solo a fine traccia:
       // un trascinamento che tocca 30 celle deve costare un solo undo.
       this.strokeStart = this.snapshot();
@@ -610,6 +661,11 @@ export class LevelEditor {
         // Diviso per lo zoom: a schermo il dito deve restare sullo stesso punto.
         cam.scrollX = this.panFrom.scrollX - (p.x - this.panFrom.x) / cam.zoom;
         cam.scrollY = this.panFrom.scrollY - (p.y - this.panFrom.y) / cam.zoom;
+        return;
+      }
+
+      if (this.tool === 'backdrop') {
+        this.dragBackdrop(p);
         return;
       }
 
@@ -648,6 +704,71 @@ export class LevelEditor {
       this.dirty = this.strokeWasDirty;
       this.refresh();
     }
+  }
+
+  // ------------------------------------------------------------- fondali
+
+  /**
+   * Cosa fa un tocco con lo strumento 🖼.
+   *
+   * Se sotto il dito c'e' gia' un fondale lo prende, altrimenti ne piazza uno
+   * nuovo li'. Nessuna modalita' da cambiare fra "aggiungi" e "sposta": e' la
+   * stessa regola della selezione, dove appoggiare il dito dentro l'area la
+   * sposta e appoggiarlo fuori ne comincia un'altra.
+   */
+  private touchBackdrop(p: Phaser.Input.Pointer): void {
+    const world = this.worldOnPlane(p);
+    const existing = this.scene.backdrop.at(world.x, world.y);
+
+    if (existing !== undefined) {
+      this.pickedBackground = existing;
+      const at = this.scene.backdrop.positionOf(existing)!;
+      this.backgroundGrab = { dx: at.x - world.x, dy: at.y - world.y };
+      this.refresh();
+      return;
+    }
+
+    if (this.chosenBackground === '') return;
+    const index = this.scene.backdrop.add(this.chosenBackground, world.x, world.y);
+    if (index < 0) return;
+    this.pickedBackground = index;
+    // Preso dal centro: e' li' che l'ha appena messo il dito.
+    this.backgroundGrab = { dx: 0, dy: 0 };
+    this.refresh();
+  }
+
+  private dragBackdrop(p: Phaser.Input.Pointer): void {
+    if (this.pickedBackground === undefined || !this.backgroundGrab) return;
+    const world = this.worldOnPlane(p);
+    this.scene.backdrop.move(
+      this.pickedBackground,
+      world.x + this.backgroundGrab.dx,
+      world.y + this.backgroundGrab.dy,
+    );
+  }
+
+  /** Le modifiche dai pulsanti passano dall'undo, come tutto il resto. */
+  private scaleBackground(factor: number): void {
+    const index = this.pickedBackground;
+    if (index === undefined) return;
+    this.edit(() => this.scene.backdrop.scaleBy(index, factor));
+  }
+
+  private reorderBackground(direction: 1 | -1): void {
+    const index = this.pickedBackground;
+    if (index === undefined) return;
+    this.edit(() => {
+      this.pickedBackground = this.scene.backdrop.reorder(index, direction);
+    });
+  }
+
+  private removeBackground(): void {
+    const index = this.pickedBackground;
+    if (index === undefined) return;
+    this.edit(() => {
+      this.scene.backdrop.remove(index);
+      this.pickedBackground = undefined;
+    });
   }
 
   // ----------------------------------------------------------- contagocce
@@ -730,6 +851,12 @@ export class LevelEditor {
       if (!changed) this.strokeStart = null;
       this.refresh();
     }
+    if (this.tool === 'backdrop') {
+      this.backgroundGrab = null;
+      // `push()` confronta gli stati e scarta i pari: prendere un fondale
+      // senza spostarlo non finisce nella cronologia da solo.
+      this.refresh();
+    }
     this.commitStroke();
   }
 
@@ -775,11 +902,21 @@ export class LevelEditor {
         return;
       }
 
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.pickedBackground !== undefined) {
+        e.preventDefault();
+        this.removeBackground();
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (this.selection.count > 0) {
           e.preventDefault();
           this.deleteSelection();
         }
+        return;
+      }
+      if (e.key === 'Escape' && this.pickedBackground !== undefined) {
+        this.pickedBackground = undefined;
+        this.refresh();
         return;
       }
       if (e.key === 'Escape') {
@@ -955,7 +1092,7 @@ export class LevelEditor {
     // quelle rimaste appese vanno tolte.
     this.remapOpen((i) => (i < this.levels.length ? i : null));
     this.markOpen(this.activeLevelIndex);
-    this.placement.loadLayers(this.levels[this.activeLevelIndex]!.layers);
+    this.mountLevel();
     this.placement.activeLayer = snapshot.layer;
     this.selection.clear();
     this.touch();
@@ -1041,6 +1178,10 @@ export class LevelEditor {
     this.tool = tool;
     if (tool === 'select') this.selection.show();
     else this.selection.hide();
+    // Il fondale in mano vale finche' si resta sullo strumento: i suoi comandi
+    // spariscono, e lasciarlo selezionato in silenzio sarebbe uno stato
+    // invisibile che riemerge tornando qui.
+    if (tool !== 'backdrop') this.pickedBackground = undefined;
     this.refresh();
   }
 
@@ -1126,7 +1267,16 @@ export class LevelEditor {
          una barra che cresce in altezza mangerebbe tutta la scena. */
       #editor-toolbar .palette-strip {
         display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin;
+        align-items: center;
       }
+      /* Il display flex batte l'attributo hidden: senza questa riga le due
+         palette resterebbero visibili tutte e due. */
+      #editor-toolbar .palette-strip[hidden] { display: none; }
+      /* Un fondale e' largo e basso: l'anteprima quadrata dei blocchi lo
+         ridurrebbe a una striscia illeggibile. */
+      #editor-toolbar .fondali button.palette { width: 84px; }
+      #editor-toolbar .fondali button.palette img { width: 72px; height: 40px; image-rendering: auto; }
+      #editor-toolbar .hint { font-size: 12px; opacity: .7; margin: 0; }
       #editor-toolbar button, #layer-panel button, #level-tabs button {
         min-height: 40px; padding: 0 14px; border-radius: 8px;
         border: 1px solid #3a3a48; background: #2f2f3d; color: #e8e8ef;
@@ -1259,7 +1409,11 @@ export class LevelEditor {
          torna al comportamento di prima invece di rompersi. */
       @media (max-height: 600px) and (min-width: 600px) {
         #editor-toolbar { flex-direction: row; flex-wrap: wrap; align-items: center; }
-        #editor-toolbar .palette-strip { flex: 1 1 160px; min-width: 0; }
+        #editor-toolbar .palette-strip { flex: 1 1 90px; min-width: 0; }
+        /* Base piccola di proposito: la palette scorre gia', mentre i comandi
+           che vanno a capo si portano dietro un'altra riga di schermo. Con 160
+           il quinto strumento faceva traboccare la riga e la barra tornava a
+           125px. */
         #editor-toolbar .controls { flex: 0 0 auto; }
         /* Il foglio aperto resta una riga tutta sua: e' l'unico momento in cui
            serve spazio, e dura il tempo di un comando. */
@@ -1277,6 +1431,7 @@ export class LevelEditor {
     const strip = document.createElement('div');
     strip.className = 'palette-strip';
     this.root.appendChild(strip);
+    this.paletteStrip = strip;
 
     for (const block of BLOCKS) {
       const b = document.createElement('button');
@@ -1293,6 +1448,35 @@ export class LevelEditor {
       strip.appendChild(b);
       this.paletteButtons.set(block.id, b);
     }
+
+    // La palette dei fondali sta accanto a quella dei blocchi e si alternano:
+    // sono la stessa domanda — "cosa piazzo" — fatta da due strumenti diversi,
+    // e due strisce contemporanee costerebbero una riga di schermo per niente.
+    this.backdropStrip = document.createElement('div');
+    this.backdropStrip.className = 'palette-strip fondali';
+    this.root.appendChild(this.backdropStrip);
+
+    for (const image of BACKGROUNDS) {
+      const b = document.createElement('button');
+      b.className = 'palette';
+      b.title = image.label;
+      b.innerHTML = `<img alt="" src="${this.textureSrc(image.id)}"><span>${image.label}</span>`;
+      b.onclick = () => {
+        this.chosenBackground = image.id;
+        this.refresh();
+      };
+      this.backdropStrip.appendChild(b);
+      this.backgroundButtons.set(image.id, b);
+    }
+    if (BACKGROUNDS.length === 0) {
+      // Una striscia vuota sembrerebbe un guasto. Il rimedio e' una cartella,
+      // e vale la pena dirlo invece di lasciarlo indovinare.
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent = 'Nessun fondale: carica un\u2019immagine in src/assets/backgrounds/';
+      this.backdropStrip.appendChild(hint);
+    }
+    this.chosenBackground = BACKGROUNDS[0]?.id ?? '';
 
     // Riga 2: strumenti.
     const tools = document.createElement('div');
@@ -1311,6 +1495,24 @@ export class LevelEditor {
     this.selectionActions = document.createElement('div');
     this.selectionActions.className = 'group';
     tools.appendChild(this.selectionActions);
+
+    // I comandi del fondale compaiono solo con lo strumento 🖼 e un'immagine in
+    // mano: sono quattro pulsanti che il resto del tempo non servirebbero.
+    this.backdropActions = document.createElement('div');
+    this.backdropActions.className = 'group';
+    tools.appendChild(this.backdropActions);
+
+    const bd = this.backdropActions;
+    this.iconButton('－', 'Rimpicciolisci', () => this.scaleBackground(1 / BACKDROP_SCALE_STEP), bd)
+      .title = 'Rimpicciolisci il fondale';
+    this.iconButton('＋', 'Ingrandisci', () => this.scaleBackground(BACKDROP_SCALE_STEP), bd)
+      .title = 'Ingrandisci il fondale';
+    this.iconButton('⤓', 'Dietro', () => this.reorderBackground(-1), bd)
+      .title = 'Manda il fondale dietro agli altri';
+    this.iconButton('⤒', 'Avanti', () => this.reorderBackground(1), bd)
+      .title = 'Porta il fondale davanti agli altri fondali';
+    this.iconButton('🗑', 'Togli', () => this.removeBackground(), bd)
+      .title = 'Togli questo fondale dal livello';
 
     const box = this.selectionActions;
     this.copyButton = this.iconButton('⧉', 'Copia', () => this.copySelection(false), box);
@@ -1649,9 +1851,17 @@ export class LevelEditor {
         ? `area: ${selected} celle, ${this.selection.blockCount} blocchi`
         : `${this.placement.count} blocchi`;
 
+    // La palette dice cosa si sta per piazzare, e dipende dallo strumento.
+    const fondali = this.tool === 'backdrop';
+    this.paletteStrip.hidden = fondali;
+    this.backdropStrip.hidden = !fondali;
     for (const [type, button] of this.paletteButtons) {
       button.setAttribute('aria-pressed', String(this.placement.selected === type));
     }
+    for (const [id, button] of this.backgroundButtons) {
+      button.setAttribute('aria-pressed', String(this.chosenBackground === id));
+    }
+    this.backdropActions.hidden = !fondali || this.pickedBackground === undefined;
     for (const [tool, button] of this.toolButtons) {
       button.setAttribute('aria-pressed', String(this.tool === tool));
 
