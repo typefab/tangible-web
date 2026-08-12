@@ -395,6 +395,31 @@ relazione fra loro e' scritta:
 E' la seconda volta che un pareggio di profondita' costa un difetto: la prima
 era il player sulla propria cella.
 
+**I fondali stanno nel pannello dei layer, non nella barra.** Quel pannello e'
+gia' *la struttura del livello aperto* — i piani su cui si costruisce — e un
+fondale e' esattamente quello: contenuto di questo livello, non un comando
+dell'editor. Due sezioni, layer sopra e fondali sotto.
+
+Ci sono finiti anche i comandi di scala, rotazione e ordine, che prima stavano
+nella barra: li' facevano crescere la barra di 54px appena si prendeva
+un'immagine, e su telefono quello spazio e' la scena. Scegliendo 🖼 il pannello
+si apre da solo se era chiuso — uno strumento che non mostra i suoi comandi
+sembra non fare niente — ma richiuderlo resta una decisione di chi lo usa.
+
+**Perche' l'elenco non e' un lusso.** Un fondale grande copre quasi tutto lo
+schermo, e da li' in poi ogni tocco *prende quello* invece di aggiungerne un
+altro: era la regola giusta, ma rendeva il secondo fondale praticamente
+impossibile da mettere, e infatti sembrava che se ne potesse mettere uno solo.
+Il **+** nella sezione lo aggiunge al centro della vista, ed e' la via che non
+dipende da cosa c'e' gia' sotto il dito.
+
+**Rotazione**: passi di 15 gradi, cosi' 45 e 90 cadono sul passo. Il centro
+resta fermo. La chiave `rotation` non compare quando e' zero, come
+`backgrounds` non compare nei livelli che non ne hanno. La presa di
+un'immagine ruotata usa il rettangolo allineato agli assi che la contiene:
+un po' generosa negli angoli, ma deve solo dire quale immagine si sta
+indicando.
+
 Dettagli che vengono dall'uso e non dal disegno:
 
 - **il tocco prende il fondale che c'e', o ne mette uno se non c'e'.** Nessuna
@@ -551,7 +576,7 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Formato progetto | `level/project.ts` | piu' livelli in un file; i livelli sono valori immutabili |
 | Catalogo dei livelli | `editor/LevelBrowser.ts` | elenco con ricerca; le schede sono solo gli aperti |
 | Fondali | `scenes/Backdrop.ts` | immagini dietro la scena, per livello; strumento 🖼 nell'editor |
-| Test | `test/`, `playwright.config.ts` | 86 test sul gioco che gira, in CI a ogni push |
+| Test | `test/`, `playwright.config.ts` | 92 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:

@@ -41,18 +41,26 @@ export class Backdrop {
    */
   load(backgrounds: readonly SerializedBackground[] = []): void {
     this.clear();
-    for (const item of backgrounds) this.add(item.id, item.x, item.y, item.scale);
+    for (const item of backgrounds) {
+      const index = this.add(item.id, item.x, item.y, item.scale);
+      if (index >= 0 && item.rotation) this.items[index]!.setAngle(item.rotation);
+    }
   }
 
   serialize(): SerializedBackground[] {
-    return this.items.map((image) => ({
-      id: image.texture.key,
-      // Arrotondati: un fondale trascinato col dito produrrebbe altrimenti
-      // sette decimali per riga, e il diff di `level.json` va letto a mano.
-      x: Math.round(image.x),
-      y: Math.round(image.y),
-      scale: Math.round(image.scaleX * 1000) / 1000,
-    }));
+    return this.items.map((image) => {
+      const item: SerializedBackground = {
+        id: image.texture.key,
+        // Arrotondati: un fondale trascinato col dito produrrebbe altrimenti
+        // sette decimali per riga, e il diff di `level.json` va letto a mano.
+        x: Math.round(image.x),
+        y: Math.round(image.y),
+        scale: Math.round(image.scaleX * 1000) / 1000,
+      };
+      const angle = ((Math.round(image.angle) % 360) + 360) % 360;
+      if (angle !== 0) item.rotation = angle;
+      return item;
+    });
   }
 
   /** @returns l'indice del fondale aggiunto, o -1 se l'id non esiste. */
@@ -70,6 +78,12 @@ export class Backdrop {
    * Il fondale sotto quel punto del mondo, il piu' avanti fra quelli che lo
    * contengono. Serve all'editor per capire se un tocco prende un'immagine
    * esistente o ne piazza una nuova.
+   *
+   * Sulle immagini ruotate: `getBounds()` da' il rettangolo **allineato agli
+   * assi** che contiene l'immagine girata, quindi la presa e' un po' generosa
+   * negli angoli. E' il compromesso giusto: l'alternativa sarebbe ricostruire
+   * il quadrilatero ruotato per un tocco che deve solo dire "quale di queste
+   * immagini stai indicando".
    */
   at(x: number, y: number): number | undefined {
     for (let i = this.items.length - 1; i >= 0; i--) {
@@ -83,6 +97,11 @@ export class Backdrop {
     return image ? { x: image.x, y: image.y, scale: image.scaleX } : undefined;
   }
 
+  /** Cosa mostrare nell'elenco del pannello: l'etichetta del catalogo. */
+  labels(): string[] {
+    return this.items.map((image) => resolveBackground(image.texture.key)?.label ?? image.texture.key);
+  }
+
   move(index: number, x: number, y: number): void {
     this.items[index]?.setPosition(x, y);
   }
@@ -92,6 +111,16 @@ export class Backdrop {
     const image = this.items[index];
     if (!image) return;
     image.setScale(Phaser.Math.Clamp(image.scaleX * factor, 0.05, 20));
+  }
+
+  /**
+   * Ruota di un passo. Il centro resta dov'e': e' il punto che si e' scelto
+   * mettendo l'immagine, e farlo spostare a ogni tocco sarebbe scomodo.
+   */
+  rotateBy(index: number, degrees: number): void {
+    const image = this.items[index];
+    if (!image) return;
+    image.setAngle((((image.angle + degrees) % 360) + 360) % 360);
   }
 
   remove(index: number): void {

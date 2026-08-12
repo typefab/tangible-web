@@ -135,9 +135,22 @@ in cima all'elenco e' quello disegnato davanti.
 - la palette cambia e mostra le **immagini** invece dei blocchi
 - **tocca la scena** per metterne una li'. Toccarne una gia' messa la prende,
   invece di metterne un'altra sopra
-- **trascina** per spostarla, **－ ＋** per rimpicciolirla e ingrandirla
-- **⤓ ⤒** cambiano l'ordine fra due immagini che si sovrappongono, **🗑** la
-  toglie (`Canc` fa lo stesso, `Esc` la molla)
+- **trascina** per spostarla
+
+Il resto sta nel **pannello in alto a destra**, che si apre da solo quando
+scegli lo strumento: sotto ai layer c'e' la sezione **Fondali**, con l'elenco di
+quelli del livello. Tocca un nome per scegliere su quale lavorare, poi:
+
+| | |
+|---|---|
+| **－ ＋** | rimpicciolisce e ingrandisce |
+| **↺ ↻** | ruota di 15 gradi per volta |
+| **⤓ ⤒** | ordine fra due immagini che si sovrappongono |
+| **🗑** | la toglie (`Canc` uguale, `Esc` la molla) |
+
+**Per metterne un secondo usa il + della sezione**: un fondale grande copre
+quasi tutto lo schermo, e da li' in poi toccare la scena prende quello invece di
+aggiungerne un altro. Il **+** lo mette al centro di quello che stai guardando.
 
 I fondali stanno **dietro a tutto**, anche dietro alla griglia, e appartengono
 al livello: ogni livello ha i suoi. Non sono blocchi, quindi pennello, gomma e
@@ -145,8 +158,21 @@ selezione non li toccano.
 
 Per aggiungerne di nuovi: carica un'immagine in **`src/assets/backgrounds/`** e
 fai commit — stessa promessa dei blocchi, compare da sola nella palette. Vanno
-bene `png`, `jpg` e `webp`. **Tienile leggere**: finiscono nel sito e nell'APK,
-e un fondale a schermo intero pesa quanto migliaia di blocchi.
+bene `png`, `jpg` e `webp`.
+
+**Il formato conta piu' della dimensione.** Il PNG e' senza perdita: comprime
+benissimo le tinte piatte e malissimo il dettaglio fine. Misurato, stessa
+immagine 1920x1080:
+
+| Contenuto | In PNG |
+|---|---|
+| disegno piatto, poche tinte | **9 kB** |
+| immagine fotografica | **2193 kB** |
+
+Per confronto, tutto il gioco pubblicato oggi pesa 4504 kB, Phaser compreso.
+Quindi: **pixel art e tinte piatte, o serve la trasparenza → PNG. Dipinti, foto,
+cieli sfumati → JPG o WebP**, che stanno in una frazione. Ogni persona che apre
+il link scarica quello che carichi, e finisce anche nell'APK.
 
 **I livelli**
 
