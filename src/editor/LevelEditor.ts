@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GRID, LAYERS, type BlockType } from '../config';
-import { BACKGROUNDS, BLOCKS } from '../assets/catalog';
+import { BACKGROUNDS, registerRuntimeBlock, resolveBlock } from '../assets/catalog';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import {
   emptyLevel,
@@ -13,6 +13,8 @@ import { SelectionTool, type Picked } from './SelectionTool';
 import { EditorStorage, describeWhen } from './EditorStorage';
 import { chooseDialog } from './dialog';
 import { LevelBrowser, type BrowserLevel } from './LevelBrowser';
+import { SpriteDrawer } from './SpriteDrawer';
+import { SpriteImporter, type ImportedSprite } from './SpriteImporter';
 import type { Backdrop } from '../scenes/Backdrop';
 
 /**
@@ -143,6 +145,18 @@ export class LevelEditor {
   private statusLabel!: HTMLSpanElement;
   private paletteButtons = new Map<BlockType, HTMLButtonElement>();
   private backgroundButtons = new Map<string, HTMLButtonElement>();
+  /** Il cassetto: il catalogo intero, diviso per categoria. La palette in basso e' solo i recenti. */
+  private spriteDrawer!: SpriteDrawer;
+  /** L'editor d'immagine, per importare sprite nuovi da una foto. */
+  private spriteImporter!: SpriteImporter;
+  /**
+   * Gli sprite piazzati di recente, il piu' recente per primo. E' quello che
+   * mostra la striscia in basso: costruendo si torna sugli stessi pochi, e
+   * cercarli ogni volta nel cassetto sarebbe un tocco sprecato. Non si salva:
+   * a una riapertura si ricava da cosa c'e' gia' nel livello.
+   */
+  private recentBlocks: BlockType[] = [];
+  private static readonly RECENT_MAX = 16;
   private toolButtons = new Map<Tool, HTMLButtonElement>();
   private undoButton!: HTMLButtonElement;
   private redoButton!: HTMLButtonElement;
@@ -251,6 +265,16 @@ export class LevelEditor {
       deleteLevel: (i) => this.deleteLevel(i),
     });
 
+    this.spriteDrawer = new SpriteDrawer({
+      textureSrc: (id) => this.textureSrc(id),
+      onPick: (id) => this.chooseBlock(id),
+      onAddSprite: () => this.spriteImporter.open(),
+      usedInLevel: () => this.blockTypesInLevel(),
+    });
+    this.spriteImporter = new SpriteImporter({
+      onImport: (sprite) => this.adoptImportedSprite(sprite),
+    });
+
     this.buildToolbar();
     this.buildLevelTabs();
     this.buildLayerPanel();
@@ -310,6 +334,117 @@ export class LevelEditor {
     this.placement.loadLayers(level.layers);
     this.scene.backdrop.load(level.backgrounds);
     this.pickedBackground = undefined;
+    this.seedRecent();
+  }
+
+  // -------------------------------------------------- sprite recenti e cassetto
+
+  /**
+   * Sceglie il blocco da piazzare, da qualunque strada arrivi — striscia dei
+   * recenti, cassetto, contagocce. Un punto solo cosi' l'evidenziazione del
+   * cassetto non puo' restare indietro rispetto a quello che si sta piazzando.
+   */
+  private chooseBlock(type: BlockType): void {
+    this.placement.selected = type;
+    this.spriteDrawer.setSelected(type);
+    // Scegliere un blocco significa volerlo piazzare: con la gomma attiva il
+    // clic successivo cancellerebbe, che non e' quello che si intende.
+    if (this.tool === 'erase' && this.selection.count === 0) this.setTool('brush');
+    else this.refresh();
+  }
+
+  /** I tipi di blocco presenti nel livello aperto, per il cassetto e per il seme dei recenti. */
+  private blockTypesInLevel(): BlockType[] {
+    const types: BlockType[] = [];
+    for (const layer of this.placement.serializeLayers()) {
+      for (const block of layer.blocks) types.push(block.type);
+    }
+    return types;
+  }
+
+  /**
+   * Segna un tipo come appena usato: in cima e senza doppioni. Da chiamare
+   * quando un blocco viene davvero piazzato, non quando viene solo scelto.
+   */
+  private noteUsed(type: BlockType | undefined): void {
+    if (!type || !resolveBlock(type)) return;
+    if (this.recentBlocks[0] === type) return;
+    this.recentBlocks = [type, ...this.recentBlocks.filter((t) => t !== type)].slice(
+      0,
+      LevelEditor.RECENT_MAX,
+    );
+    this.renderRecent();
+  }
+
+  /**
+   * Riempie i recenti da cio' che c'e' nel livello: a una riapertura la striscia
+   * non e' vuota. Se il livello e' vuoto tiene almeno il blocco attivo, cosi'
+   * c'e' sempre qualcosa da toccare senza aprire il cassetto.
+   */
+  private seedRecent(): void {
+    const inLevel = [...new Set(this.blockTypesInLevel())]
+      .filter((t) => resolveBlock(t))
+      .slice(0, LevelEditor.RECENT_MAX);
+    this.recentBlocks =
+      inLevel.length > 0 ? inLevel : this.placement.selected ? [this.placement.selected] : [];
+    // Puo' arrivare dal costruttore prima che la toolbar esista: allora la
+    // disegna buildToolbar da se', col seme gia' pronto.
+    if (this.paletteStrip) this.renderRecent();
+  }
+
+  /** Ridisegna la striscia dei recenti. Sono pochi: rifarla e' piu' sicuro che aggiornarla. */
+  private renderRecent(): void {
+    this.paletteStrip.replaceChildren();
+    this.paletteButtons.clear();
+
+    if (this.recentBlocks.length === 0) {
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent = 'Scegli uno sprite dal cassetto \u{1F3A8}';
+      this.paletteStrip.appendChild(hint);
+      return;
+    }
+
+    for (const id of this.recentBlocks) {
+      const block = resolveBlock(id);
+      if (!block) continue;
+      const b = document.createElement('button');
+      b.className = 'palette';
+      b.title = block.label;
+      b.innerHTML = `<img alt="" src="${this.textureSrc(block.id)}"><span>${block.label}</span>`;
+      b.onclick = () => this.chooseBlock(block.id);
+      this.paletteStrip.appendChild(b);
+      this.paletteButtons.set(block.id, b);
+    }
+    // L'evidenziazione la ridara' il prossimo refresh; qui basta che i pulsanti
+    // giusti esistano.
+  }
+
+  /**
+   * Adotta uno sprite appena creato dall'editor d'immagine.
+   *
+   * E' la meta' "runtime" dell'ibrido: la texture entra nel gioco come canvas —
+   * cosi' `GridPlacement.spawn` la trova per chiave-id, come per gli sprite di
+   * build — e la voce di catalogo lo rende risolvibile e visibile nel cassetto.
+   * Vive solo in questa sessione: il PNG scaricato e committato e' cio' che lo
+   * rende permanente, e l'importer lo dice.
+   */
+  private adoptImportedSprite(sprite: ImportedSprite): void {
+    // Una seconda importazione con lo stesso id deve poter rifare la texture:
+    // Phaser non sostituisce a chiave occupata, quindi prima si toglie.
+    if (this.scene.textures.exists(sprite.id)) this.scene.textures.remove(sprite.id);
+    this.scene.textures.addCanvas(sprite.id, sprite.canvas);
+
+    registerRuntimeBlock({
+      id: sprite.id,
+      label: sprite.label,
+      url: sprite.dataUrl,
+      category: sprite.category,
+    });
+
+    this.chooseBlock(sprite.id);
+    this.noteUsed(sprite.id);
+    this.spriteDrawer.refresh();
   }
 
   /** Sostituisce tutto il progetto e apre il livello indicato. */
@@ -832,9 +967,11 @@ export class LevelEditor {
   private pick(type: BlockType | undefined): void {
     if (!type) return;
 
-    this.placement.selected = type;
-    if (this.tool === 'erase' && this.selection.count === 0) this.setTool('brush');
-    else this.refresh();
+    // In cima ai recenti anche pescandolo col contagocce: cosi' la striscia in
+    // basso lo mostra, ed e' li' che il lampo di conferma ha un pulsante da
+    // illuminare. chooseBlock aggiorna selezione, strumento e cassetto.
+    this.noteUsed(type);
+    this.chooseBlock(type);
 
     // Il gesto non ha un pulsante da guardare: senza questo, con la palette
     // scorsa altrove, non si vedrebbe succedere niente.
@@ -969,7 +1106,7 @@ export class LevelEditor {
     // regola che rende prevedibile un editor a piani.
     if (this.tool === 'brush') {
       // spawn e non place: in editor il cooldown darebbe solo fastidio.
-      this.placement.spawn(col, row);
+      if (this.placement.spawn(col, row)) this.noteUsed(this.placement.selected);
     } else if (this.tool === 'erase') {
       this.placement.remove(col, row);
     }
@@ -1177,8 +1314,10 @@ export class LevelEditor {
   private chooseTool(tool: Tool): void {
     if (this.selection.count > 0 && (tool === 'brush' || tool === 'erase')) {
       this.edit(() => {
-        if (tool === 'brush') this.selection.fillArea(this.placement.selected);
-        else this.selection.clearArea();
+        if (tool === 'brush') {
+          this.selection.fillArea(this.placement.selected);
+          this.noteUsed(this.placement.selected);
+        } else this.selection.clearArea();
       });
       return;
     }
@@ -1464,27 +1603,13 @@ export class LevelEditor {
     this.root.id = 'editor-toolbar';
     this.root.innerHTML = `<style>${LevelEditor.style()}</style>`;
 
-    // Riga 1: la palette, generata dal catalogo degli sprite.
+    // Riga 1: gli sprite usati di recente. Il catalogo intero sta nel cassetto
+    // (l'icona 🎨 in alto): qui restano i pochi su cui si torna di continuo.
     const strip = document.createElement('div');
     strip.className = 'palette-strip';
     this.root.appendChild(strip);
     this.paletteStrip = strip;
-
-    for (const block of BLOCKS) {
-      const b = document.createElement('button');
-      b.className = 'palette';
-      b.title = block.label;
-      b.innerHTML = `<img alt="" src="${this.textureSrc(block.id)}"><span>${block.label}</span>`;
-      b.onclick = () => {
-        this.placement.selected = block.id;
-        // Scegliere un blocco significa volerlo piazzare: con la gomma attiva
-        // il clic successivo cancellerebbe, che non e' quello che si intende.
-        if (this.tool === 'erase' && this.selection.count === 0) this.setTool('brush');
-        else this.refresh();
-      };
-      strip.appendChild(b);
-      this.paletteButtons.set(block.id, b);
-    }
+    this.renderRecent();
 
     // La palette dei fondali sta accanto a quella dei blocchi e si alternano:
     // sono la stessa domanda — "cosa piazzo" — fatta da due strumenti diversi,
@@ -1652,16 +1777,22 @@ export class LevelEditor {
     this.tabBar = document.createElement('div');
     this.tabBar.id = 'level-tabs';
 
-    // Prima delle schede, e sempre visibile: con cento livelli e' da qui che si
-    // arriva a tutto, mentre crea/duplica/rinomina/elimina sono finiti dentro
-    // l'elenco, dove si vede su cosa agiscono.
-    const apriElenco = this.button('📚', () => this.browser.toggle(), this.tabBar);
-    apriElenco.className = 'elenco';
-    apriElenco.title = 'Tutti i livelli: cerca, apri, crea, elimina';
+    // A sinistra, prima delle schede: il cassetto degli sprite. E' la domanda
+    // "cosa piazzo", e sta dal lato da cui si comincia a leggere.
+    const apriSprite = this.button('🎨', () => this.spriteDrawer.toggle(), this.tabBar);
+    apriSprite.className = 'elenco sprite-toggle';
+    apriSprite.title = 'Sprite: scegli cosa piazzare, per categoria; importa';
 
     this.tabList = document.createElement('div');
     this.tabList.className = 'tabs';
     this.tabBar.appendChild(this.tabList);
+
+    // A destra, dopo le schede che riempiono il centro: l'elenco dei livelli.
+    // Con cento livelli e' da qui che si arriva a tutto, mentre crea/duplica/
+    // rinomina/elimina sono finiti dentro l'elenco, dove si vede su cosa agiscono.
+    const apriElenco = this.button('📚', () => this.browser.toggle(), this.tabBar);
+    apriElenco.className = 'elenco';
+    apriElenco.title = 'Tutti i livelli: cerca, apri, crea, elimina';
 
     document.body.appendChild(this.tabBar);
   }
