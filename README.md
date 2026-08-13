@@ -67,12 +67,16 @@ Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
 
 **Disegnare**
 
-- la fila in alto nella barra e' la **palette**: scegli il blocco da piazzare
+- la fila in alto nella barra sono gli **sprite usati di recente**: il piu'
+  recente per primo, cosi' quelli su cui torni di continuo sono a un tocco
+- il catalogo intero sta nel **cassetto 🎨**, in alto a sinistra: gli sprite
+  divisi per categoria, piu' quelli gia' usati in questo livello. Da li' si
+  importa anche uno sprite nuovo — vedi "Fare uno sprite da un'immagine"
 - **🖌 Pennello** (`B`) piazza, anche trascinando; **🧽 Gomma** (`E`) cancella.
   Con un'area selezionata questi due agiscono sull'area — vedi sotto
-- **tieni premuto su un blocco** per riprendere il suo tipo, senza cercarlo
-  nella palette: mezzo secondo e diventa quello scelto, e la palette lampeggia
-  per dirtelo. Se stavi dipingendo, quella pennellata viene disfatta — stavi
+- **tieni premuto su un blocco** per riprendere il suo tipo, senza cercarlo nel
+  cassetto: mezzo secondo e diventa quello scelto, va in cima ai recenti e il
+  suo pulsante lampeggia per dirtelo. Se stavi dipingendo, quella pennellata viene disfatta — stavi
   indicando quel blocco, non coprendolo. Da computer c'e' anche **Alt+clic**
 - **↶ / ↷** annullano e rifanno (`Ctrl+Z`, `Ctrl+Shift+Z`); un trascinamento
   intero conta come un solo passo
@@ -228,7 +232,7 @@ portata.
 
 | File | Cosa contiene |
 |---|---|
-| `src/assets/blocks/*.png` | I blocchi piazzabili. **Il nome del file e' l'id**: `dirt.png` diventa il blocco "Dirt". |
+| `src/assets/blocks/**/*.png` | I blocchi piazzabili. **Il nome del file e' l'id**: `dirt.png` diventa il blocco "Dirt"; la sottocartella e' la sua categoria nel cassetto. |
 | `src/assets/characters/`, `src/assets/ui/` | Personaggio e pezzi di interfaccia. Qui i nomi contano: li cerca il codice. |
 | `public/level.json` | Tutti i livelli, coi loro layer e blocchi. Prodotto dall'editor. |
 | `public/assets/*.png` | Archivio degli sprite del progetto GDevelop. Non lo usa nessuno: e' li' perche' non si buttano via i disegni. |
@@ -236,14 +240,50 @@ portata.
 ### Aggiungere un blocco nuovo
 
 Carichi il PNG in **`src/assets/blocks/`** dalla UI web di GitHub e fai commit.
-Fine: compare nella palette dell'editor con la sua anteprima, e' piazzabile, ed
+Fine: compare nel cassetto dell'editor con la sua anteprima, e' piazzabile, ed
 entra nell'inventario del gioco. Nessuna riga di codice da toccare — l'elenco
 degli sprite lo genera Vite leggendo la cartella durante la build.
+
+**Le sottocartelle sono le categorie del cassetto.** Un PNG in
+`src/assets/blocks/natura/` finisce sotto "natura"; uno lasciato direttamente in
+`blocks/` finisce in "Generale" e funziona come prima. Non sei obbligato a
+ordinare niente: le cartelle servono quando gli sprite diventano tanti.
 
 Il prezzo e' che serve una build, cioe' il minuto del deploy: fino ad allora il
 blocco non c'e'. E' anche il motivo per cui gli sprite stanno in `src/` e non in
 `public/`: una pagina web non puo' elencare il contenuto di una cartella remota,
 quindi da `public/` servirebbe un elenco scritto a mano.
+
+### Fare uno sprite da un'immagine
+
+Nel cassetto **🎨 → Aggiungi sprite**. Si apre un editor d'immagine che gira
+dentro la pagina, quindi funziona anche dal telefono:
+
+1. **Carica un'immagine** — galleria, fotocamera o file, quello che ti offre il
+   telefono.
+2. **Togli lo sfondo.** Guarda i quattro angoli, li considera sfondo, e cancella
+   tutto quello che gli somiglia partendo dai bordi. La **tolleranza** dice
+   quanto "somigliante" basta: se resta un alone alzala, se sparisce un pezzo
+   della figura abbassala. La scacchiera dietro l'anteprima ti fa vedere dov'e'
+   diventato trasparente.
+3. **Scegli il lato in pixel** — a mano o con le frecce **−** e **+**. E' la
+   risoluzione dello sprite finito.
+4. **✏️ Ritaglia a mano**, se serve. Gomma e ripristino pixel per pixel, con
+   zoom e annulla: e' la strada per i bordi complicati, e per i buchi di sfondo
+   *dentro* la sagoma, che l'automatico non puo' indovinare.
+
+Poi due pulsanti, e **fanno due cose diverse**:
+
+| | Cosa fa | Quanto dura |
+|---|---|---|
+| **Aggiungi al livello** | lo puoi piazzare subito | **fino alla ricarica**, e solo su questo browser |
+| **Scarica PNG** | ti da' il file da caricare su GitHub | per sempre, e per tutti |
+
+Per tenere davvero uno sprite devi **scaricarlo e committarlo** in
+`src/assets/blocks/<categoria>/`: il pannello ti scrive il percorso esatto. E'
+lo stesso motivo di sempre — l'editor gira su una pagina statica e non puo'
+scrivere nel repository. Finche' non fai commit, un livello che usa quello
+sprite mostra un buco a chiunque altro lo apra.
 
 ## Cosa tocco io
 
@@ -269,7 +309,13 @@ quindi da `public/` servirebbe un elenco scritto a mano.
 - Caricamento della disposizione iniziale da `level.json`
 - Profondita' `col + row`, corretta per l'isometrica
 - **Catalogo degli sprite generato dalle cartelle**: un PNG caricato in
-  `src/assets/blocks/` compare da solo nella palette e nell'inventario
+  `src/assets/blocks/` compare da solo nel cassetto e nell'inventario, e la
+  sottocartella in cui lo metti diventa la sua categoria
+- **Cassetto degli sprite** diviso per categoria, con quelli gia' usati nel
+  livello a portata; in basso restano gli **usati di recente**
+- **Sprite fatti da un'immagine, dentro il browser**: togli sfondo, riduci a
+  pixel-art, ritaglia a mano i bordi. Usabile subito nella sessione, permanente
+  quando committi il PNG
 - **Layer** con nome, visibilita' e quota: si costruisce anche in verticale, e
   in gioco il tocco prende sempre il blocco piu' in alto
 - **Piu' livelli in un file solo**, con `?level=` in gioco. Nell'editor un

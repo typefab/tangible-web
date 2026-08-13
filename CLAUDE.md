@@ -27,7 +27,7 @@ piu', controlla che non violi uno di questi.
 
 | | File | Chi |
 |---|---|---|
-| Sprite dei blocchi | `src/assets/blocks/*.png` | **Fabrizio** |
+| Sprite dei blocchi | `src/assets/blocks/<categoria>/*.png` | **Fabrizio** |
 | Fondali | `src/assets/backgrounds/*` | **Fabrizio** |
 | Personaggio, interfaccia | `src/assets/characters/`, `src/assets/ui/` | **Fabrizio** |
 | Livelli | `public/level.json` | **Fabrizio**, dall'editor |
@@ -66,7 +66,18 @@ conversazione, non una modifica.
   i blocchi, il prezzo lo pagano pennello, gomma, selezione e appunti.
 - **I tipi di blocco vengono dalle cartelle**, via `src/assets/catalog.ts`. Non
   reintrodurre un elenco scritto a mano: la promessa e' "carichi un PNG, fai
-  commit, compare".
+  commit, compare". La **sottocartella e' la categoria** del cassetto, ed e'
+  facoltativa: un PNG lasciato in `blocks/` finisce in "Generale" e compare
+  lo stesso.
+- **Uno sprite fatto nell'editor d'immagine vive solo in quella sessione.**
+  `registerRuntimeBlock()` lo rende piazzabile subito, ma resta un elenco
+  separato dai `BLOCKS` di build apposta: non e' nel repository, sparisce alla
+  ricarica, e un `level.json` che lo nomina mostra un buco a chiunque altro
+  finche' il PNG non viene committato. L'interfaccia lo deve dire — la
+  differenza non si vede.
+- **La striscia in basso e' i recenti, non il catalogo.** Il catalogo intero sta
+  nel cassetto 🎨: con molti sprite una striscia che li elenca tutti diventa
+  illeggibile, ed e' il motivo per cui e' stata divisa.
 - **`BlockType` e' `string`.** L'elenco esiste solo dopo la build, quindi valida
   a runtime con `resolveBlock()` e scarta gli id sconosciuti.
 - **I blocchi sono indicizzati per id di layer, non per indice.** Con l'indice,
@@ -104,6 +115,15 @@ isometrica sbagliata al 74% — era passato esattamente cosi'.
 
 Regole imparate a spese nostre:
 
+- **`N passed` non vuol dire "verde".** Playwright stampa quella riga *sotto*
+  l'elenco dei falliti, e con `tail` si vede solo lei. Confronta il numero col
+  totale (`npx playwright test --list` lo dice) o guarda `Exit code`: e' cosi'
+  che tredici test rossi sono stati riportati come verdi e sono finiti in due PR
+  mergiate.
+- **una classe CSS che un test usa come indirizzo e' un'interfaccia.**
+  `#level-tabs .elenco` voleva dire "il catalogo dei livelli": dandola anche al
+  cassetto degli sprite, i test hanno cominciato ad aprire il pannello sbagliato.
+  Prima di riusare una classe, cerca chi la seleziona.
 - **aspetta un oggetto, mai un tempo fisso.** `page.waitForFunction`, non
   `waitForTimeout`: un timeout tarato sulla macchina di sviluppo diventa un test
   rosso su CI.

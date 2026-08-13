@@ -1500,7 +1500,9 @@ export class LevelEditor {
       #level-tabs .tabs { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 auto; scrollbar-width: thin; }
       /* Il pulsante dell'elenco non scorre via con le schede: con cento livelli
          e' la via d'accesso a tutto il resto. */
-      #level-tabs .elenco { flex: 0 0 auto; min-height: 34px; padding: 0 10px; font-size: 16px; }
+      #level-tabs .elenco, #level-tabs .sprite-toggle {
+        flex: 0 0 auto; min-height: 34px; padding: 0 10px; font-size: 16px;
+      }
       /* Una scheda e' due pulsanti attaccati: il nome apre, la × chiude. */
       #level-tabs .tab {
         display: flex; flex: 0 0 auto; align-items: stretch;
@@ -1779,8 +1781,11 @@ export class LevelEditor {
 
     // A sinistra, prima delle schede: il cassetto degli sprite. E' la domanda
     // "cosa piazzo", e sta dal lato da cui si comincia a leggere.
+    // La classe e' sua e non `elenco`: quella dice "il catalogo dei livelli", ed
+    // e' come lo trovano i test. Due pulsanti con la stessa classe facevano
+    // aprire il cassetto a chi chiedeva l'elenco.
     const apriSprite = this.button('🎨', () => this.spriteDrawer.toggle(), this.tabBar);
-    apriSprite.className = 'elenco sprite-toggle';
+    apriSprite.className = 'sprite-toggle';
     apriSprite.title = 'Sprite: scegli cosa piazzare, per categoria; importa';
 
     this.tabList = document.createElement('div');
