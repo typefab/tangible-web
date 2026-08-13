@@ -1,4 +1,5 @@
 import { isRuntimeBlock, resolveBlock } from '../assets/catalog';
+import { MaskEditor } from './MaskEditor';
 
 /**
  * L'editor d'immagine: da una foto qualsiasi a uno sprite pixel-art.
@@ -35,8 +36,15 @@ export interface SpriteImporterDeps {
   onImport: (sprite: ImportedSprite) => void;
 }
 
-/** Il lato piu' lungo dell'immagine di lavoro: oltre, togliere lo sfondo e' lento per niente. */
-const WORK_MAX = 512;
+/**
+ * Il lato piu' lungo dell'immagine di lavoro. Alto perche' gli sprite sono
+ * grandi (oltre 200px): la sorgente deve tenere il dettaglio prima di ridurla,
+ * altrimenti la pixel-art finale la ingrandirebbe sfocandola.
+ */
+const WORK_MAX = 1024;
+
+/** Estremi e passo del lato in pixel dello sprite. Il passo e' quello delle frecce. */
+const SIZE = { min: 8, max: 512, step: 8, initial: 128 } as const;
 
 export class SpriteImporter {
   private readonly root: HTMLDivElement;
@@ -48,8 +56,10 @@ export class SpriteImporter {
   private sizeInput!: HTMLInputElement;
   private removeBgInput!: HTMLInputElement;
   private addButton!: HTMLButtonElement;
+  private cropButton!: HTMLButtonElement;
   private downloadLink!: HTMLAnchorElement;
   private note!: HTMLParagraphElement;
+  private readonly maskEditor = new MaskEditor();
 
   /** L'immagine caricata, ridotta a `WORK_MAX`. Da qui riparte ogni ricalcolo. */
   private source: HTMLCanvasElement | null = null;
@@ -120,6 +130,15 @@ export class SpriteImporter {
 
     box.appendChild(this.controls());
 
+    // La matita: rifinire a mano i bordi che il flood-fill non indovina. Viene
+    // dopo l'automatico, e agisce sui pixel finali — quello che tagli si gioca.
+    this.cropButton = document.createElement('button');
+    this.cropButton.className = 'ritaglia';
+    this.cropButton.textContent = '✏️ Ritaglia a mano';
+    this.cropButton.title = 'Gomma e ripristino pixel per pixel, sui bordi complessi';
+    this.cropButton.onclick = () => void this.crop();
+    box.appendChild(this.cropButton);
+
     this.note = document.createElement('p');
     this.note.className = 'note';
     box.appendChild(this.note);
@@ -167,11 +186,8 @@ export class SpriteImporter {
     this.toleranceInput.value = '60';
     this.toleranceInput.oninput = () => this.recompute();
 
-    this.sizeInput = labelledInput(wrap, 'Lato in pixel', 'number', '');
-    this.sizeInput.min = '8';
-    this.sizeInput.max = '256';
-    this.sizeInput.value = '32';
-    this.sizeInput.oninput = () => this.recompute();
+    // Lato in pixel: si scrive a mano **oppure** con le frecce, un passo per volta.
+    this.sizeInput = steppedNumber(wrap, 'Lato in pixel', SIZE, () => this.recompute());
 
     return wrap;
   }
@@ -271,9 +287,28 @@ export class SpriteImporter {
     this.close();
   }
 
+  /**
+   * Apre la matita sul risultato corrente e, se si conferma, lo sostituisce.
+   *
+   * Viene dopo l'automatico di proposito: rifinisce i pixel finali. Cambiare poi
+   * dimensione o tolleranza rifa' la griglia e con lei i ritocchi — lo dice la
+   * nota, invece di buttarli via in silenzio.
+   */
+  private async crop(): Promise<void> {
+    if (!this.result) return;
+    const edited = await this.maskEditor.open(this.result);
+    if (!edited) return;
+    this.result = edited;
+    this.drawPreview(edited);
+    this.refreshNameHints();
+    this.note.textContent =
+      'Ritocchi a mano applicati. Cambiare dimensione o tolleranza li rifa’.';
+  }
+
   /** Abilita le azioni solo quando c'e' davvero un risultato da consegnare. */
   private setReady(ready: boolean): void {
     this.addButton.disabled = !ready;
+    this.cropButton.disabled = !ready;
     this.downloadLink.classList.toggle('disabled', !ready);
   }
 
@@ -311,6 +346,21 @@ export class SpriteImporter {
         border: 1px solid #3a3a48; background: #2f2f3d; color: #e8e8ef; font: inherit;
       }
       #sprite-importer input[type=range] { width: 100%; }
+      #sprite-importer .stepper { display: flex; gap: 6px; align-items: stretch; }
+      #sprite-importer .stepper input { flex: 1 1 auto; text-align: center; }
+      #sprite-importer .stepper .freccia {
+        flex: 0 0 auto; min-width: 44px; min-height: 38px; font-size: 18px; line-height: 1;
+        border-radius: 8px; border: 1px solid #3a3a48; background: #2f2f3d; color: #e8e8ef;
+        cursor: pointer; touch-action: manipulation;
+      }
+      #sprite-importer .stepper .freccia:hover { background: #3a3a48; }
+      #sprite-importer .ritaglia {
+        min-height: 42px; padding: 0 14px; border-radius: 8px; align-self: stretch;
+        border: 1px solid #3a3a48; background: #2f2f3d; color: #e8e8ef;
+        font: inherit; cursor: pointer; touch-action: manipulation;
+      }
+      #sprite-importer .ritaglia:hover:not(:disabled) { background: #3a3a48; }
+      #sprite-importer .ritaglia:disabled { opacity: .35; cursor: default; }
       #sprite-importer .note { margin: 0; font-size: 12px; opacity: .7; min-height: 2.4em; }
       #sprite-importer .actions { display: flex; gap: 8px; flex-wrap: wrap; }
       #sprite-importer .actions button, #sprite-importer .actions a {
@@ -342,6 +392,54 @@ function labelledInput(
   wrap.appendChild(input);
   parent.appendChild(wrap);
   return input;
+}
+
+/**
+ * Un campo numerico con le frecce: si scrive il valore **oppure** lo si muove a
+ * passi con − e +. Le frecce servono sul telefono, dove i puntini nativi dello
+ * spinner sono minuscoli o non ci sono. Torna l'input.
+ */
+function steppedNumber(
+  parent: HTMLElement,
+  label: string,
+  range: { min: number; max: number; step: number; initial: number },
+  onChange: () => void,
+): HTMLInputElement {
+  const wrap = document.createElement('label');
+  wrap.className = 'campo';
+  wrap.appendChild(document.createTextNode(label));
+
+  const row = document.createElement('div');
+  row.className = 'stepper';
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = String(range.min);
+  input.max = String(range.max);
+  input.step = String(range.step);
+  input.value = String(range.initial);
+
+  const bump = (by: number): void => {
+    input.value = String(clampInt(Number(input.value) + by, range.min, range.max));
+    onChange();
+  };
+  const dec = stepArrow('−', () => bump(-range.step));
+  const inc = stepArrow('+', () => bump(range.step));
+  input.oninput = () => onChange();
+
+  row.append(dec, input, inc);
+  wrap.appendChild(row);
+  parent.appendChild(wrap);
+  return input;
+}
+
+/** Una freccia dello stepper. `type=button` per non far scattare il <label> attorno. */
+function stepArrow(label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'freccia';
+  b.textContent = label;
+  b.onclick = onClick;
+  return b;
 }
 
 /** Carica un `File` immagine in un elemento decodificato. */
