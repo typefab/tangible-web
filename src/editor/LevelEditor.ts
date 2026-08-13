@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GRID, LAYERS, type BlockType } from '../config';
-import { BACKGROUNDS, resolveBlock } from '../assets/catalog';
+import { BACKGROUNDS, registerRuntimeBlock, resolveBlock } from '../assets/catalog';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import {
   emptyLevel,
@@ -14,6 +14,7 @@ import { EditorStorage, describeWhen } from './EditorStorage';
 import { chooseDialog } from './dialog';
 import { LevelBrowser, type BrowserLevel } from './LevelBrowser';
 import { SpriteDrawer } from './SpriteDrawer';
+import { SpriteImporter, type ImportedSprite } from './SpriteImporter';
 import type { Backdrop } from '../scenes/Backdrop';
 
 /**
@@ -146,6 +147,8 @@ export class LevelEditor {
   private backgroundButtons = new Map<string, HTMLButtonElement>();
   /** Il cassetto: il catalogo intero, diviso per categoria. La palette in basso e' solo i recenti. */
   private spriteDrawer!: SpriteDrawer;
+  /** L'editor d'immagine, per importare sprite nuovi da una foto. */
+  private spriteImporter!: SpriteImporter;
   /**
    * Gli sprite piazzati di recente, il piu' recente per primo. E' quello che
    * mostra la striscia in basso: costruendo si torna sugli stessi pochi, e
@@ -265,8 +268,11 @@ export class LevelEditor {
     this.spriteDrawer = new SpriteDrawer({
       textureSrc: (id) => this.textureSrc(id),
       onPick: (id) => this.chooseBlock(id),
-      onAddSprite: () => void this.addSpritePlaceholder(),
+      onAddSprite: () => this.spriteImporter.open(),
       usedInLevel: () => this.blockTypesInLevel(),
+    });
+    this.spriteImporter = new SpriteImporter({
+      onImport: (sprite) => this.adoptImportedSprite(sprite),
     });
 
     this.buildToolbar();
@@ -415,16 +421,30 @@ export class LevelEditor {
   }
 
   /**
-   * Segnaposto dell'importazione sprite. L'editor d'immagine — rimuovi sfondo,
-   * maschera pixel-art, importa — e' lo Strato 2: qui c'e' solo il bottone da
-   * cui partira'.
+   * Adotta uno sprite appena creato dall'editor d'immagine.
+   *
+   * E' la meta' "runtime" dell'ibrido: la texture entra nel gioco come canvas —
+   * cosi' `GridPlacement.spawn` la trova per chiave-id, come per gli sprite di
+   * build — e la voce di catalogo lo rende risolvibile e visibile nel cassetto.
+   * Vive solo in questa sessione: il PNG scaricato e committato e' cio' che lo
+   * rende permanente, e l'importer lo dice.
    */
-  private async addSpritePlaceholder(): Promise<void> {
-    await chooseDialog(
-      'Importa sprite',
-      'L’editor d’immagine (rimuovi sfondo, pixel-art, ridimensiona) arriva nel prossimo passo.',
-      [{ id: 'ok', label: 'Ok' }],
-    );
+  private adoptImportedSprite(sprite: ImportedSprite): void {
+    // Una seconda importazione con lo stesso id deve poter rifare la texture:
+    // Phaser non sostituisce a chiave occupata, quindi prima si toglie.
+    if (this.scene.textures.exists(sprite.id)) this.scene.textures.remove(sprite.id);
+    this.scene.textures.addCanvas(sprite.id, sprite.canvas);
+
+    registerRuntimeBlock({
+      id: sprite.id,
+      label: sprite.label,
+      url: sprite.dataUrl,
+      category: sprite.category,
+    });
+
+    this.chooseBlock(sprite.id);
+    this.noteUsed(sprite.id);
+    this.spriteDrawer.refresh();
   }
 
   /** Sostituisce tutto il progetto e apre il livello indicato. */

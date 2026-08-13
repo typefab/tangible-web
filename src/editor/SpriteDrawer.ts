@@ -89,6 +89,11 @@ export class SpriteDrawer {
     return this.open;
   }
 
+  /** Ridisegna se aperto: per uno sprite appena importato o appena usato. */
+  refresh(): void {
+    if (this.open) this.render();
+  }
+
   private render(): void {
     this.body.replaceChildren();
 

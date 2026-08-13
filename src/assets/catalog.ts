@@ -111,6 +111,17 @@ function catalogOf(files: UrlModules): AssetDef[] {
 export const DEFAULT_CATEGORY = 'Generale';
 
 /**
+ * Blocchi creati dall'editor d'immagine, vivi solo in questa sessione.
+ *
+ * E' la meta' "runtime" dell'ibrido dello Strato 2: un PNG fatto nel browser si
+ * puo' piazzare subito, ma non e' nel repository. A una ricarica sparisce, e un
+ * `level.json` che lo usa mostra un buco per chiunque altro finche' il file non
+ * viene committato in `src/assets/blocks/`. Restano un elenco separato dai
+ * `BLOCKS` di build apposta per non far credere il contrario.
+ */
+const runtimeBlocks: AssetDef[] = [];
+
+/**
  * I blocchi raggruppati per categoria, per il cassetto dell'editor.
  *
  * L'ordine delle categorie e' alfabetico ma con la default sempre in coda: sta
@@ -119,7 +130,7 @@ export const DEFAULT_CATEGORY = 'Generale';
  */
 export function blocksByCategory(): { category: string; blocks: AssetDef[] }[] {
   const groups = new Map<string, AssetDef[]>();
-  for (const block of BLOCKS) {
+  for (const block of [...BLOCKS, ...runtimeBlocks]) {
     const key = block.category ?? DEFAULT_CATEGORY;
     (groups.get(key) ?? groups.set(key, []).get(key)!).push(block);
   }
@@ -175,6 +186,24 @@ export function canonicalBlockId(id: string): string | undefined {
 
 export function blockLabel(id: string): string {
   return resolveBlock(id)?.label ?? id;
+}
+
+/**
+ * Registra (o sostituisce) un blocco di sessione, cosi' `resolveBlock` e il
+ * cassetto lo vedono. La texture vera va aggiunta a parte al gioco: qui c'e'
+ * solo la voce di catalogo. Torna la def registrata.
+ */
+export function registerRuntimeBlock(def: AssetDef): AssetDef {
+  const i = runtimeBlocks.findIndex((b) => b.id === def.id);
+  if (i >= 0) runtimeBlocks[i] = def;
+  else runtimeBlocks.push(def);
+  blocksById.set(def.id, def);
+  return def;
+}
+
+/** True se l'id e' un blocco di sessione e non un file del repository. */
+export function isRuntimeBlock(id: string): boolean {
+  return runtimeBlocks.some((b) => b.id === id);
 }
 
 const backgroundsById = new Map(BACKGROUNDS.map((b) => [b.id, b]));
