@@ -270,9 +270,15 @@ dentro la pagina, quindi funziona anche dal telefono:
    quanto "somigliante" basta: se resta un alone alzala, se sparisce un pezzo
    della figura abbassala. La scacchiera dietro l'anteprima ti fa vedere dov'e'
    diventato trasparente.
-3. **Scegli il lato in pixel** — a mano o con le frecce **−** e **+**. E' la
+3. **💧 Indica lo sfondo**, quando gli angoli non bastano. Se la figura tocca un
+   angolo, l'automatico scambia il suo colore per sfondo e te la mangia: premi
+   il pulsante e **tocca l'anteprima dove c'e' lo sfondo**. Da quel momento il
+   riferimento e' quel colore soltanto, e il punto che hai toccato viene tolto
+   anche se e' chiuso dentro la figura — il vuoto nel manico di una tazza. Il
+   quadratino accanto mostra il colore preso; **↺** torna agli angoli.
+4. **Scegli il lato in pixel** — a mano o con le frecce **−** e **+**. E' la
    risoluzione dello sprite finito.
-4. **✏️ Ritaglia a mano**, se serve. Gomma e ripristino pixel per pixel, con
+5. **✏️ Ritaglia a mano**, se serve. Gomma e ripristino pixel per pixel, con
    zoom e annulla: e' la strada per i bordi complicati, e per i buchi di sfondo
    *dentro* la sagoma, che l'automatico non puo' indovinare.
 

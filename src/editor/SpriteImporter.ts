@@ -57,6 +57,9 @@ export class SpriteImporter {
   private removeBgInput!: HTMLInputElement;
   private addButton!: HTMLButtonElement;
   private cropButton!: HTMLButtonElement;
+  private pickButton!: HTMLButtonElement;
+  private pickSwatch!: HTMLSpanElement;
+  private pickReset!: HTMLButtonElement;
   private downloadLink!: HTMLAnchorElement;
   private note!: HTMLParagraphElement;
   private readonly maskEditor = new MaskEditor();
@@ -65,6 +68,21 @@ export class SpriteImporter {
   private source: HTMLCanvasElement | null = null;
   /** Lo sprite finito dell'ultimo ricalcolo: quello che si aggiunge o si scarica. */
   private result: HTMLCanvasElement | null = null;
+
+  /** Vero mentre si aspetta il tocco che indica lo sfondo. */
+  private picking = false;
+  /**
+   * Il punto indicato col contagocce, in coordinate della **sorgente**: e' li'
+   * che il colore e' ancora quello vero, e non cambia se si cambia il lato in
+   * pixel. `null` = si torna a dedurlo dai quattro angoli.
+   */
+  private picked: { x: number; y: number } | null = null;
+  /**
+   * Dove e quanto ingrandito e' stato disegnato l'ultimo sprite nell'anteprima.
+   * Serve a riportare indietro un tocco: ricalcolarlo a mano darebbe due conti
+   * da tenere allineati, ed e' il modo di sbagliare di un pixel.
+   */
+  private previewFit: { x: number; y: number; scale: number; w: number; h: number } | null = null;
 
   constructor(private readonly deps: SpriteImporterDeps) {
     this.root = document.createElement('div');
@@ -106,6 +124,10 @@ export class SpriteImporter {
     this.fileInput.value = '';
     this.nameInput.value = '';
     this.categoryInput.value = 'importati';
+    this.picking = false;
+    this.picked = null;
+    this.previewFit = null;
+    this.refreshPicker();
     this.clearPreview();
     this.setReady(false);
     this.note.textContent = 'Carica un’immagine per cominciare.';
@@ -142,6 +164,7 @@ export class SpriteImporter {
     this.preview.className = 'preview';
     this.preview.width = 192;
     this.preview.height = 192;
+    this.preview.onclick = (e) => this.pickFromPreview(e);
     box.appendChild(this.preview);
 
     box.appendChild(this.controls());
@@ -203,9 +226,89 @@ export class SpriteImporter {
     this.toleranceInput.oninput = () => this.recompute();
 
     // Lato in pixel: si scrive a mano **oppure** con le frecce, un passo per volta.
+    // Il contagocce sta accanto alla tolleranza perche' sono la stessa domanda:
+    // "qual e' lo sfondo" e "quanto largo lo intendo".
+    const pick = document.createElement('div');
+    pick.className = 'pescasfondo';
+    this.pickButton = document.createElement('button');
+    this.pickButton.type = 'button';
+    this.pickButton.className = 'contagocce';
+    this.pickButton.textContent = '💧 Indica lo sfondo';
+    this.pickButton.title = 'Tocca l\u2019anteprima nel punto in cui c\u2019e\u2019 lo sfondo';
+    this.pickButton.onclick = () => this.togglePicking();
+    this.pickSwatch = document.createElement('span');
+    this.pickSwatch.className = 'campione';
+    this.pickReset = document.createElement('button');
+    this.pickReset.type = 'button';
+    this.pickReset.className = 'freccia';
+    this.pickReset.textContent = '↺';
+    this.pickReset.title = 'Torna a dedurre lo sfondo dai quattro angoli';
+    this.pickReset.onclick = () => {
+      this.picked = null;
+      this.picking = false;
+      this.recompute();
+    };
+    pick.append(this.pickButton, this.pickSwatch, this.pickReset);
+    wrap.appendChild(pick);
+
     this.sizeInput = steppedNumber(wrap, 'Lato in pixel', SIZE, () => this.recompute());
 
     return wrap;
+  }
+
+  // ------------------------------------------------------------ contagocce
+
+  private togglePicking(): void {
+    this.picking = !this.picking;
+    this.recompute();
+  }
+
+  /**
+   * Riporta un tocco sull'anteprima fino al pixel della sorgente.
+   *
+   * Si campiona la **sorgente** e non lo sprite ridotto: dopo il ritaglio quel
+   * punto puo' essere gia' trasparente, e si prenderebbe il nulla invece del
+   * colore che si sta indicando.
+   */
+  private pickFromPreview(e: MouseEvent): void {
+    if (!this.picking || !this.source || !this.previewFit) return;
+
+    const rect = this.preview.getBoundingClientRect();
+    const cx = ((e.clientX - rect.left) / rect.width) * this.preview.width;
+    const cy = ((e.clientY - rect.top) / rect.height) * this.preview.height;
+
+    const fit = this.previewFit;
+    const sx = Math.floor((cx - fit.x) / fit.scale);
+    const sy = Math.floor((cy - fit.y) / fit.scale);
+    // Fuori dall'immagine c'e' la scacchiera: li' non si sta indicando niente.
+    if (sx < 0 || sy < 0 || sx >= fit.w || sy >= fit.h) return;
+
+    this.picked = {
+      x: clampInt(((sx + 0.5) * this.source.width) / fit.w, 0, this.source.width - 1),
+      y: clampInt(((sy + 0.5) * this.source.height) / fit.h, 0, this.source.height - 1),
+    };
+    this.picking = false;
+    this.recompute();
+  }
+
+  /** Il colore indicato, come lo legge la sorgente. */
+  private pickedColor(): string | null {
+    if (!this.source || !this.picked) return null;
+    const d = this.source.getContext('2d')!.getImageData(this.picked.x, this.picked.y, 1, 1).data;
+    return `rgb(${d[0]}, ${d[1]}, ${d[2]})`;
+  }
+
+  /** Allinea pulsante, campione e ripristino a com'e' messo il contagocce. */
+  private refreshPicker(): void {
+    this.preview.classList.toggle('pesca', this.picking);
+    this.pickButton.setAttribute('aria-pressed', String(this.picking));
+    this.pickButton.textContent = this.picking ? '💧 Tocca lo sfondo' : '💧 Indica lo sfondo';
+
+    const colore = this.pickedColor();
+    this.pickSwatch.style.background = colore ?? 'transparent';
+    this.pickSwatch.classList.toggle('vuoto', colore === null);
+    this.pickSwatch.title = colore ? `Sfondo indicato: ${colore}` : 'Sfondo dedotto dagli angoli';
+    this.pickReset.hidden = this.picked === null;
   }
 
   /** Legge il file scelto, lo riduce a `WORK_MAX` e ricalcola. */
@@ -232,12 +335,17 @@ export class SpriteImporter {
 
     const work = cloneCanvas(this.source);
     if (this.removeBgInput.checked) {
-      removeBackground(work, Number(this.toleranceInput.value));
+      removeBackground(work, Number(this.toleranceInput.value), this.picked ?? undefined);
     }
 
-    const side = clampInt(Number(this.sizeInput.value), 8, 256);
+    // Gli estremi sono quelli dello stepper: erano cablati a 256, e un lato piu'
+    // grande scelto con le frecce veniva zitto zitto dimezzato.
+    const side = clampInt(Number(this.sizeInput.value), SIZE.min, SIZE.max);
     this.result = pixelate(work, side);
-    this.drawPreview(this.result);
+    // Col contagocce armato l'anteprima mostra i colori veri, senza il ritaglio:
+    // se lo sfondo e' stato tolto male non ci sarebbe piu' niente da indicare.
+    this.drawPreview(this.picking ? pixelate(this.source, side) : this.result);
+    this.refreshPicker();
     this.refreshNameHints();
     this.setReady(true);
   }
@@ -253,8 +361,11 @@ export class SpriteImporter {
     const scale = Math.floor(Math.min(W / sprite.width, H / sprite.height)) || 1;
     const dw = sprite.width * scale;
     const dh = sprite.height * scale;
+    const x = (W - dw) / 2;
+    const y = (H - dh) / 2;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sprite, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.drawImage(sprite, x, y, dw, dh);
+    this.previewFit = { x, y, scale, w: sprite.width, h: sprite.height };
   }
 
   private clearPreview(): void {
@@ -362,6 +473,31 @@ export class SpriteImporter {
         border: 1px solid #3a3a48; background: #2f2f3d; color: #e8e8ef; font: inherit;
       }
       #sprite-importer input[type=range] { width: 100%; }
+      #sprite-importer .pescasfondo { display: flex; gap: 6px; align-items: center; }
+      #sprite-importer .contagocce {
+        flex: 1 1 auto; min-height: 38px; padding: 0 12px; border-radius: 8px;
+        border: 1px solid #3a3a48; background: #2f2f3d; color: #e8e8ef;
+        font: inherit; cursor: pointer; touch-action: manipulation;
+      }
+      #sprite-importer .contagocce:hover { background: #3a3a48; }
+      #sprite-importer .contagocce[aria-pressed="true"] {
+        border-color: #ffd166; background: #4a4432; color: #ffd166;
+      }
+      /* Il campione mostra il colore preso: la scacchiera sotto dice "nessuno". */
+      #sprite-importer .campione {
+        flex: 0 0 auto; width: 38px; height: 38px; border-radius: 8px;
+        border: 1px solid #3a3a48;
+      }
+      #sprite-importer .campione.vuoto {
+        background-image:
+          linear-gradient(45deg, #2a2a34 25%, transparent 25%, transparent 75%, #2a2a34 75%),
+          linear-gradient(45deg, #2a2a34 25%, transparent 25%, transparent 75%, #2a2a34 75%);
+        background-size: 12px 12px; background-position: 0 0, 6px 6px;
+        background-color: #20202a;
+      }
+      #sprite-importer .pescasfondo .freccia[hidden] { display: none; }
+      /* In modo contagocce il puntatore dice che l'anteprima e' diventata un bersaglio. */
+      #sprite-importer .preview.pesca { cursor: crosshair; }
       #sprite-importer .stepper { display: flex; gap: 6px; align-items: stretch; }
       #sprite-importer .stepper input { flex: 1 1 auto; text-align: center; }
       #sprite-importer .stepper .freccia {
@@ -502,21 +638,31 @@ function cloneCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
  * dello sfondo ma *dentro* la figura non deve sparire, perche' non e' connesso
  * al bordo.
  */
-function removeBackground(canvas: HTMLCanvasElement, tolerance: number): void {
+function removeBackground(
+  canvas: HTMLCanvasElement,
+  tolerance: number,
+  picked?: { x: number; y: number },
+): void {
   const ctx = canvas.getContext('2d')!;
   const { width: w, height: h } = canvas;
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
 
-  const cornerColors = [
-    [0, 0],
-    [w - 1, 0],
-    [0, h - 1],
-    [w - 1, h - 1],
-  ].map(([x, y]) => sampleRGB(d, (y * w + x) * 4));
+  // Il riferimento: il colore indicato col contagocce, se c'e', altrimenti i
+  // quattro angoli. Indicarlo serve quando gli angoli non sono sfondo — con la
+  // figura che ne occupa uno, il riferimento automatico e' la figura stessa, e
+  // il ritaglio mangia proprio cio' che si voleva tenere.
+  const reference = picked
+    ? [sampleRGB(d, (clampInt(picked.y, 0, h - 1) * w + clampInt(picked.x, 0, w - 1)) * 4)]
+    : [
+        [0, 0],
+        [w - 1, 0],
+        [0, h - 1],
+        [w - 1, h - 1],
+      ].map(([x, y]) => sampleRGB(d, (y * w + x) * 4));
 
   const near = (i: number): boolean =>
-    cornerColors.some((c) => colorDist(d, i * 4, c) <= tolerance);
+    reference.some((c) => colorDist(d, i * 4, c) <= tolerance);
 
   const visited = new Uint8Array(w * h);
   const stack: number[] = [];
@@ -535,6 +681,10 @@ function removeBackground(canvas: HTMLCanvasElement, tolerance: number): void {
     seed(0, y);
     seed(w - 1, y);
   }
+  // Il punto indicato e' un seme anche se non tocca nessun bordo: e' cosi' che
+  // cade una zona di sfondo chiusa dentro la figura — il buco nel manico della
+  // tazza — che partendo dai soli bordi non si raggiunge.
+  if (picked) seed(clampInt(picked.x, 0, w - 1), clampInt(picked.y, 0, h - 1));
 
   while (stack.length > 0) {
     const i = stack.pop()!;
