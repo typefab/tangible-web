@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { ISO, TIMING, LAYERS, type BlockType } from '../config';
-import { canonicalBlockId, DEFAULT_BLOCK_ID } from '../assets/catalog';
+import { canonicalBlockId, DEFAULT_BLOCK_ID, resolveBlock } from '../assets/catalog';
 import { projection } from '../grid/projection';
 import { emptyLayer, type SerializedLayer } from '../level/project';
 
@@ -326,9 +326,12 @@ export class GridPlacement {
 
     const { x, y } = GridPlacement.cellToWorld(col, row);
     const sprite = this.scene.add.sprite(x, y + projection.elevationOffsetY(layer.elevation), texture);
-    // Largo quanto il rombo, altezza in proporzione: gli sprite dei blocchi
-    // sono piu' alti della cella perche' mostrano anche la faccia frontale.
-    sprite.setDisplaySize(ISO.tileWidth, sprite.height * (ISO.tileWidth / sprite.width));
+    // Largo quanto il rombo per la taglia dello sprite, altezza in proporzione:
+    // gli sprite dei blocchi sono piu' alti della cella perche' mostrano anche
+    // la faccia frontale. La taglia viene dal nome del file (`albero@2.png`) e
+    // vale 1 per tutti gli altri, quindi i blocchi di sempre non si muovono.
+    const width = ISO.tileWidth * (resolveBlock(type)?.scale ?? 1);
+    sprite.setDisplaySize(width, sprite.height * (width / sprite.width));
     sprite.setDepth(GridPlacement.depthOf(col, row, layerIndex));
     sprite.setData('type', texture);
     sprite.setVisible(layer.visible);

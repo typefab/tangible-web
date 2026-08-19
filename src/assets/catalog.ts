@@ -22,6 +22,16 @@ export interface AssetDef {
   /** URL da dare a `this.load.image()`. */
   readonly url: string;
   /**
+   * Quante celle e' largo lo sprite, se il nome del file lo dice: `albero@2.png`
+   * -> 2. Assente vuol dire 1, cioe' largo come il rombo.
+   *
+   * **Il suffisso non entra nell'id**, come la sottocartella non ci entra:
+   * `albero@2.png` e `albero@3.png` sono lo stesso blocco `albero` di misura
+   * diversa, e un `level.json` che lo nomina continua a funzionare se un giorno
+   * cambi idea sulla taglia.
+   */
+  readonly scale?: number;
+  /**
    * La sottocartella in cui sta il PNG, se ce n'e' una: `blocks/natura/tree.png`
    * -> `natura`. E' quello che il cassetto dell'editor usa per raggruppare. Un
    * file messo direttamente in `blocks/` non ha categoria e finisce in quella
@@ -71,9 +81,28 @@ const uiFiles = import.meta.glob('./ui/*.png', {
   import: 'default',
 }) as UrlModules;
 
-/** `./blocks/red_brick.png` -> `red_brick` */
-function idFromPath(path: string): string {
-  return path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
+/** Estremi di taglia accettati: fuori di qui e' quasi sempre un nome scritto male. */
+const SCALE_LIMITS = { min: 0.1, max: 8 } as const;
+
+/**
+ * Il nome del file, sciolto in id e taglia.
+ *
+ * `./blocks/red_brick.png` -> `red_brick`
+ * `./blocks/albero@2.png`  -> `albero`, largo 2 celle
+ *
+ * Un `@` senza un numero buono dopo si tiene per intero nell'id: un file che si
+ * chiama davvero cosi' deve continuare ad aprirsi, non sparire.
+ */
+function nameFromPath(path: string): { id: string; scale?: number } {
+  const stem = path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
+  const at = stem.lastIndexOf('@');
+  if (at <= 0) return { id: stem };
+
+  const scale = Number(stem.slice(at + 1));
+  if (!Number.isFinite(scale) || scale < SCALE_LIMITS.min || scale > SCALE_LIMITS.max) {
+    return { id: stem };
+  }
+  return { id: stem.slice(0, at), scale };
 }
 
 /**
@@ -101,8 +130,9 @@ function labelFromId(id: string): string {
 function catalogOf(files: UrlModules): AssetDef[] {
   return Object.entries(files)
     .map(([path, url]) => {
-      const id = idFromPath(path);
-      return { id, label: labelFromId(id), url, category: categoryFromPath(path) };
+      const { id, scale } = nameFromPath(path);
+      const def: AssetDef = { id, label: labelFromId(id), url, category: categoryFromPath(path) };
+      return scale === undefined ? def : { ...def, scale };
     })
     .sort((a, b) => a.id.localeCompare(b.id));
 }

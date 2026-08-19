@@ -1,4 +1,6 @@
 import { isRuntimeBlock, resolveBlock } from '../assets/catalog';
+import { ISO } from '../config';
+import { projection } from '../grid/projection';
 import { MaskEditor } from './MaskEditor';
 
 /**
@@ -25,6 +27,8 @@ export interface ImportedSprite {
   label: string;
   /** La cartella-categoria suggerita, gia' resa sicura per un nome di file. */
   category: string;
+  /** Quante celle e' largo: 1 = come il rombo. Finisce nel nome del file. */
+  scale: number;
   /** Lo sprite finito, alla dimensione scelta: la sorgente della texture di sessione. */
   canvas: HTMLCanvasElement;
   /** Lo stesso, come data URI PNG, per l'anteprima e il download. */
@@ -45,6 +49,13 @@ const WORK_MAX = 2048;
 
 /** Estremi e passo del lato in pixel dello sprite. Il passo e' quello delle frecce. */
 const SIZE = { min: 8, max: 1024, step: 8, initial: 128 } as const;
+
+/**
+ * Quante celle puo' essere largo uno sprite. Un quarto di cella e' il piu'
+ * piccolo che si distingua ancora; oltre otto non e' piu' un blocco, e' uno
+ * sfondo — e per quelli c'e' lo strumento apposta.
+ */
+const TAGLIA = { min: 0.25, max: 8, step: 0.25, initial: 1 } as const;
 
 export class SpriteImporter {
   private readonly root: HTMLDivElement;
@@ -78,6 +89,20 @@ export class SpriteImporter {
    * spariva a ogni ricalcolo.
    */
   private manualMask: Uint8Array | null = null;
+
+  /** L'anteprima sulla cella: quanto sara' grande davvero, in gioco. */
+  private cellPreview!: HTMLCanvasElement;
+  private tagliaInput!: HTMLInputElement;
+  private anchorInput!: HTMLInputElement;
+  /** Quante celle largo. Finisce nel nome del file come `@2`, non nell'id. */
+  private taglia: number = TAGLIA.initial;
+  /**
+   * Di quanto lo sprite sta piu' in alto del centro della cella, in frazione
+   * della sua altezza. **Non e' un metadato**: all'esportazione diventa spazio
+   * trasparente nel PNG, quindi non c'e' niente da tenere allineato e vale
+   * anche per chi apre il file senza sapere di questo pannello.
+   */
+  private anchor = 0;
 
   /** Vero mentre si aspetta il tocco che indica lo sfondo. */
   private picking = false;
@@ -135,6 +160,10 @@ export class SpriteImporter {
     this.nameInput.value = '';
     this.categoryInput.value = 'importati';
     this.manualMask = null;
+    this.taglia = TAGLIA.initial;
+    this.tagliaInput.value = String(TAGLIA.initial);
+    this.anchor = 0;
+    this.anchorInput.value = '0';
     this.picking = false;
     this.picked = null;
     this.previewFit = null;
@@ -177,6 +206,21 @@ export class SpriteImporter {
     this.preview.height = 192;
     this.preview.onclick = (e) => this.pickFromPreview(e);
     box.appendChild(this.preview);
+
+    // La seconda anteprima: lo sprite appoggiato su una cella vera. Risponde
+    // alla domanda che la scacchiera non risponde — "quanto sara' grande in
+    // gioco" — senza doverlo piazzare per scoprirlo.
+    const cella = document.createElement('div');
+    cella.className = 'cella';
+    this.cellPreview = document.createElement('canvas');
+    this.cellPreview.className = 'sulla-cella';
+    this.cellPreview.width = 240;
+    this.cellPreview.height = 170;
+    const didascalia = document.createElement('p');
+    didascalia.className = 'didascalia';
+    didascalia.textContent = 'Come starà sulla griglia';
+    cella.append(this.cellPreview, didascalia);
+    box.appendChild(cella);
 
     box.appendChild(this.controls());
 
@@ -264,9 +308,118 @@ export class SpriteImporter {
     pick.append(this.pickButton, this.pickSwatch, this.pickReset);
     wrap.appendChild(pick);
 
-    this.sizeInput = steppedNumber(wrap, 'Lato in pixel', SIZE, () => this.recompute());
+    this.sizeInput = steppedNumber(wrap, 'Lato in pixel', SIZE, 'lato', () => this.recompute());
+
+    // Quanto e' largo rispetto al rombo. E' l'unica leva che cambia davvero la
+    // dimensione in gioco: il lato in pixel e' solo nitidezza, perche' il gioco
+    // riporta comunque ogni blocco alla larghezza della cella.
+    this.tagliaInput = steppedNumber(wrap, 'Largo (celle)', TAGLIA, 'taglia', () => {
+      this.taglia = clampFloat(Number(this.tagliaInput.value), TAGLIA.min, TAGLIA.max);
+      this.refreshCell();
+      this.refreshNameHints();
+    });
+
+    // L'appoggio diventa spazio trasparente nel PNG, non un numero da salvare.
+    const app = document.createElement('label');
+    app.className = 'campo';
+    app.appendChild(document.createTextNode('Appoggio sulla cella'));
+    this.anchorInput = document.createElement('input');
+    this.anchorInput.type = 'range';
+    this.anchorInput.min = '-50';
+    this.anchorInput.max = '50';
+    this.anchorInput.value = '0';
+    this.anchorInput.oninput = () => {
+      this.anchor = Number(this.anchorInput.value) / 100;
+      this.refreshCell();
+      this.refreshNameHints();
+    };
+    app.appendChild(this.anchorInput);
+    wrap.appendChild(app);
 
     return wrap;
+  }
+
+  // -------------------------------------------------- taglia e anteprima cella
+
+  /**
+   * Il PNG che esce davvero: il risultato piu' lo spazio trasparente che
+   * realizza l'appoggio. Il gioco centra ogni sprite sul centro della cella,
+   * quindi aggiungere vuoto sotto lo alza e aggiungerne sopra lo abbassa —
+   * senza che nessuno debba ricordarsi un secondo numero.
+   */
+  private exportCanvas(): HTMLCanvasElement | null {
+    if (!this.result) return null;
+    const pad = Math.round(this.result.height * Math.abs(this.anchor));
+    if (pad === 0) return this.result;
+
+    const out = document.createElement('canvas');
+    out.width = this.result.width;
+    out.height = this.result.height + pad;
+    out.getContext('2d')!.drawImage(this.result, 0, this.anchor > 0 ? 0 : pad);
+    return out;
+  }
+
+  /** Il nome del file: `id@taglia.png`, senza suffisso quando e' largo una cella. */
+  private fileName(id: string): string {
+    return this.taglia === 1 ? `${id}.png` : `${id}@${trimNumber(this.taglia)}.png`;
+  }
+
+  private refreshCell(): void {
+    const shown = this.exportCanvas();
+    if (shown) this.drawCell(shown);
+  }
+
+  /**
+   * Disegna la cella e lo sprite sopra, con le stesse proporzioni del gioco.
+   *
+   * **Il rombo viene da `projection.cellOutline`**, non ridisegnato qui: se un
+   * giorno la proiezione cambia, questa anteprima cambia con lei invece di
+   * diventare una bugia. E' la stessa ragione per cui l'editor disegna
+   * attraverso la scena.
+   */
+  private drawCell(sprite: HTMLCanvasElement): void {
+    const ctx = this.cellPreview.getContext('2d')!;
+    const { width: W, height: H } = this.cellPreview;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#1b1b22';
+    ctx.fillRect(0, 0, W, H);
+
+    // Quanto sara' grande in gioco, in unita' di mondo: la larghezza la decide
+    // la taglia, l'altezza segue le proporzioni dell'immagine.
+    const dw = ISO.tileWidth * this.taglia;
+    const dh = sprite.height * (dw / sprite.width);
+
+    // Zoom che fa stare dentro sia le celle attorno sia lo sprite.
+    const spanX = Math.max(dw, ISO.tileWidth * 3.2);
+    const spanY = Math.max(dh, ISO.tileHeight * 3.2) + ISO.tileHeight * 2;
+    const k = Math.min(W / spanX, H / spanY);
+
+    const center = projection.cellToWorld(0, 0);
+    const cx = W / 2;
+    const cy = H * 0.62;
+    const toScreen = (q: { x: number; y: number }) => ({
+      x: cx + (q.x - center.x) * k,
+      y: cy + (q.y - center.y) * k,
+    });
+
+    for (let row = -1; row <= 1; row++) {
+      for (let col = -1; col <= 1; col++) {
+        const pts = projection.cellOutline(col, row).map(toScreen);
+        ctx.beginPath();
+        ctx.moveTo(pts[0]!.x, pts[0]!.y);
+        for (const q of pts.slice(1)) ctx.lineTo(q.x, q.y);
+        ctx.closePath();
+        const centrale = col === 0 && row === 0;
+        ctx.fillStyle = centrale ? '#2f2f3d' : '#23232c';
+        ctx.fill();
+        ctx.strokeStyle = centrale ? '#ffd166' : '#3a3a48';
+        ctx.lineWidth = centrale ? 2 : 1;
+        ctx.stroke();
+      }
+    }
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sprite, cx - (dw * k) / 2, cy - (dh * k) / 2, dw * k, dh * k);
   }
 
   // ------------------------------------------------------------ contagocce
@@ -356,6 +509,7 @@ export class SpriteImporter {
     // Col contagocce armato l'anteprima mostra i colori veri, senza il ritaglio:
     // se lo sfondo e' stato tolto male non ci sarebbe piu' niente da indicare.
     this.drawPreview(this.picking ? pixelate(this.source, side) : this.result);
+    this.refreshCell();
     this.refreshPicker();
     this.refreshNameHints();
     this.setReady(true);
@@ -392,9 +546,10 @@ export class SpriteImporter {
   /** Aggiorna id, link di download e avviso di collisione col nome corrente. */
   private refreshNameHints(): void {
     const id = slugId(this.nameInput.value);
-    if (this.result && id) {
-      this.downloadLink.href = this.result.toDataURL('image/png');
-      this.downloadLink.download = `${id}.png`;
+    const uscita = this.exportCanvas();
+    if (uscita && id) {
+      this.downloadLink.href = uscita.toDataURL('image/png');
+      this.downloadLink.download = this.fileName(id);
     } else {
       this.downloadLink.removeAttribute('href');
     }
@@ -407,24 +562,27 @@ export class SpriteImporter {
       // quello del repository tornerebbe alla ricarica, questo no.
       this.note.textContent = `“${id}” esiste gia' nel repository: scegli un altro nome.`;
     } else {
-      this.note.textContent = `Committa in src/assets/blocks/${category}/${id}.png per renderlo permanente.`;
+      this.note.textContent = `Committa in src/assets/blocks/${category}/${this.fileName(id)} per renderlo permanente.`;
     }
   }
 
   private emit(): void {
     if (!this.result) return;
+
     const id = slugId(this.nameInput.value);
     if (!id || isBuiltIn(id)) {
       this.refreshNameHints();
       return;
     }
     const category = slugId(this.categoryInput.value) || 'importati';
+    const uscita = this.exportCanvas()!;
     this.deps.onImport({
       id,
       label: this.nameInput.value.trim() || id,
       category,
-      canvas: this.result,
-      dataUrl: this.result.toDataURL('image/png'),
+      scale: this.taglia,
+      canvas: uscita,
+      dataUrl: uscita.toDataURL('image/png'),
     });
     this.close();
   }
@@ -499,6 +657,12 @@ export class SpriteImporter {
         border: 1px solid #3a3a48; background: #2f2f3d; color: #e8e8ef; font: inherit;
       }
       #sprite-importer input[type=range] { width: 100%; }
+      #sprite-importer .cella { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+      #sprite-importer canvas.sulla-cella {
+        width: 240px; max-width: 100%; height: auto;
+        border-radius: 8px; border: 1px solid #3a3a48; image-rendering: pixelated;
+      }
+      #sprite-importer .didascalia { margin: 0; font-size: 11px; opacity: .6; }
       #sprite-importer .pescasfondo { display: flex; gap: 6px; align-items: center; }
       #sprite-importer .contagocce {
         flex: 1 1 auto; min-height: 38px; padding: 0 12px; border-radius: 8px;
@@ -581,6 +745,7 @@ function steppedNumber(
   parent: HTMLElement,
   label: string,
   range: { min: number; max: number; step: number; initial: number },
+  nome: string,
   onChange: () => void,
 ): HTMLInputElement {
   const wrap = document.createElement('label');
@@ -588,7 +753,9 @@ function steppedNumber(
   wrap.appendChild(document.createTextNode(label));
 
   const row = document.createElement('div');
-  row.className = 'stepper';
+  // Il nome distingue uno stepper dall'altro: due con la stessa classe non si
+  // possono indirizzare, ne' da un test ne' da un foglio di stile.
+  row.className = `stepper ${nome}`;
   const input = document.createElement('input');
   input.type = 'number';
   input.min = String(range.min);
@@ -597,7 +764,10 @@ function steppedNumber(
   input.value = String(range.initial);
 
   const bump = (by: number): void => {
-    input.value = String(clampInt(Number(input.value) + by, range.min, range.max));
+    const grezzo = clampFloat(Number(input.value) + by, range.min, range.max);
+    // I passi frazionari — un quarto di cella — non sopravvivono a un
+    // arrotondamento a intero, ma non devono nemmeno lasciare code di decimali.
+    input.value = trimNumber(Math.round(grezzo / range.step) * range.step);
     onChange();
   };
   const dec = stepArrow('−', () => bump(-range.step));
@@ -808,4 +978,13 @@ function isBuiltIn(id: string): boolean {
 
 function clampInt(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, Math.round(Number.isFinite(n) ? n : lo)));
+}
+
+function clampFloat(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, Number.isFinite(n) ? n : lo));
+}
+
+/** `2` -> "2", `1.5` -> "1.5": niente `1.50` nel nome di un file. */
+function trimNumber(n: number): string {
+  return String(Math.round(n * 100) / 100);
 }

@@ -506,6 +506,34 @@ sfondo tolto male non ci sarebbe piu' niente da indicare.
 
 Restano i bordi complessi, che nessun riferimento di colore puo' indovinare.
 
+### La taglia di uno sprite
+
+Un fatto che si e' scoperto tardi: `spawn` porta **ogni** blocco a
+`ISO.tileWidth` di larghezza. La risoluzione del PNG non c'entra niente con
+quanto e' grande in gioco — serve solo alla nitidezza. Quindi la strada
+"esporto lo stesso oggetto in tre PNG di misure diverse" non avrebbe funzionato
+comunque: sarebbero venuti fuori tre blocchi identici.
+
+La taglia sta nel **nome del file**: `albero@2.png` e' largo due celle. La
+regola che la rende innocua e' la stessa della sottocartella — **il suffisso non
+entra nell'id**. `albero@2.png` e `albero@3.png` sono lo stesso blocco `albero`,
+quindi ripensarci non invalida i `level.json` gia' scritti, e non serve nessun
+elenco a mano da tenere allineato. Un `@` che non e' seguito da un numero
+sensato resta nell'id: un file chiamato davvero cosi' deve continuare ad
+aprirsi, non sparire dal catalogo.
+
+**L'appoggio sulla cella non e' un metadato.** Uno sprite sta centrato sul
+centro del rombo, e uno alto sborda sotto. Invece di aggiungere un secondo
+numero da salvare accanto alla taglia, l'importer **incorpora l'appoggio nel
+PNG** come spazio trasparente: aggiungere vuoto sotto alza l'immagine, sopra la
+abbassa. Non c'e' niente da tenere allineato, funziona anche per chi apre il
+file senza sapere di quel pannello, e i blocchi gia' piazzati non si spostano.
+
+L'anteprima che serve a tararla disegna la cella con **`projection.cellOutline`**
+e non un rombo ridisegnato a mano: se un giorno la proiezione cambia,
+l'anteprima cambia con lei invece di diventare una bugia. E' lo stesso motivo
+per cui l'editor disegna attraverso la scena.
+
 ### La matita, rifatta dopo averla usata
 
 La prima versione e' stata provata a mano e ne sono usciti sei difetti in fila.
@@ -781,6 +809,11 @@ Test principali superati:
   figura appoggiata a un angolo l'automatico **la mangia** — il pixel della
   figura esce trasparente — mentre indicando lo sfondo col contagocce la figura
   resta rossa e opaca e il bianco attorno se ne va
+- la taglia: il suffisso del nome file si scioglie in id e misura, e un `@` che
+  non e' una taglia resta nell'id; scelta la taglia, il nome proposto per il
+  commit diventa `blocco_largo@2.png` e in scena quel blocco e' **largo il
+  doppio** di uno normale; l'anteprima disegna la cella e ci mette sopra lo
+  sprite
 - la matita, sui sei difetti trovati usandola: un tratto veloce **da un capo
   all'altro in un solo salto** lascia una linea continua e non una fila di buchi;
   il ritaglio **resta dopo aver cambiato il lato in pixel**, e il resto
@@ -987,7 +1020,11 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
     chiude il cerchio
 13. ~~Contagocce per lo sfondo~~ — **fatto**: si indica il colore invece di
     dedurlo dagli angoli, e il punto indicato fa da seme anche dentro la figura
-14. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+14. **Scala del singolo blocco piazzato**: un campo `scale` in `level.json` piu'
+    i comandi nell'editor, per avere lo stesso sprite in tre misure diverse
+    nella stessa scena. La taglia per tipo, gia' fatta, copre il caso "quanto e'
+    grande un albero"; questo copre "quest'albero e' piu' piccolo"
+15. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
 
@@ -1003,6 +1040,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | **Il peso dei fondali** | Un blocco pesa 300 byte, un fondale a schermo intero puo' pesarne un milione. Finiscono nel sito **e nell'APK**, e chi apre la pagina se li scarica. Vanno tenuti piccoli, in `jpg` o `webp` |
 | **Salva non porta il lavoro nel gioco** | Salva scrive in `localStorage`, solo Scarica + upload su GitHub aggiorna il gioco. La UI lo dice in tre punti, ma resta il modo piu' facile di perdere una serata |
 | **`localStorage` sta in ~5 MB** | Un progetto da cento livelli pieni ci arriva (~2 MB, ma cresce). Ora Salva lo dice invece di fingere, e resta Scarica; la soluzione vera e' IndexedDB |
+| **Uno sprite grande copre celle che non occupa** | La profondita' resta `col + row` della sua unica cella: un albero largo due puo' finire davanti a qualcosa che dovrebbe stargli davanti. E' come funziona l'isometrica, non un difetto da correggere — ma si vede, e con l'arte a rombi ancora in sospeso conviene saperlo |
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
 | **Uno sprite di sessione sembra permanente** | Si piazza come gli altri e sta nel cassetto come gli altri, ma vive finche' non si ricarica. Un livello salvato che lo nomina mostra un buco a chiunque altro. Il pannello dice dove committarlo, ma e' un avviso da leggere contro un'interfaccia che non lo mostra |
 | **Sprite grandi e peso del PNG** | Il lato in pixel arriva a 1024 e la sorgente di lavoro a 2048. Uno sprite a quella risoluzione non pesa piu' come i 300 byte di `basic.png`, e finisce nel sito e nell'APK come i fondali. Vale la stessa regola: tenerli piccoli quanto basta |

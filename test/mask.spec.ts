@@ -71,13 +71,13 @@ test('le frecce del lato in pixel aumentano e diminuiscono il valore', async ({ 
   await openEditor(page);
   await loadProva(page);
 
-  const campo = page.locator('#sprite-importer .stepper input');
+  const campo = page.locator('#sprite-importer .stepper.lato input');
   const prima = Number(await campo.inputValue());
 
   // La seconda freccia e' il +, la prima il −.
-  await page.locator('#sprite-importer .stepper .freccia').last().click();
+  await page.locator('#sprite-importer .stepper.lato .freccia').last().click();
   expect(Number(await campo.inputValue())).toBe(prima + 8);
 
-  await page.locator('#sprite-importer .stepper .freccia').first().click();
+  await page.locator('#sprite-importer .stepper.lato .freccia').first().click();
   expect(Number(await campo.inputValue())).toBe(prima);
 });

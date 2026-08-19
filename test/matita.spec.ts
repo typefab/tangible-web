@@ -91,8 +91,8 @@ test('il ritaglio resta anche cambiando il lato in pixel', async ({ page }) => {
 
   // Il cambio di dimensione prima ricostruiva tutto dalla sorgente, e il
   // ritaglio spariva senza dire niente.
-  await page.locator('#sprite-importer .stepper .freccia').last().click();
-  await page.locator('#sprite-importer .stepper .freccia').last().click();
+  await page.locator('#sprite-importer .stepper.lato .freccia').last().click();
+  await page.locator('#sprite-importer .stepper.lato .freccia').last().click();
 
   await page.fill('#sprite-importer input[placeholder="muro_di_pietra"]', 'ritaglio tenuto');
   await page.click('#sprite-importer .primary');
@@ -196,8 +196,8 @@ test('con un lato grande l\'anteprima ci sta dentro invece di uscire dal bordo',
 
   // Un lato ben piu' grande dei 192px dell'anteprima: prima `floor` dava 0, si
   // ripiegava su 1x e lo sprite veniva disegnato a grandezza piena, mezzo fuori.
-  await page.fill('#sprite-importer .stepper input', '512');
-  await page.dispatchEvent('#sprite-importer .stepper input', 'input');
+  await page.fill('#sprite-importer .stepper.lato input', '512');
+  await page.dispatchEvent('#sprite-importer .stepper.lato input', 'input');
 
   // In alto al centro ci deve essere la scacchiera, non lo sprite: se lo sprite
   // esce dal riquadro, quel punto e' rosso.
