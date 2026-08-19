@@ -278,9 +278,16 @@ dentro la pagina, quindi funziona anche dal telefono:
    quadratino accanto mostra il colore preso; **↺** torna agli angoli.
 4. **Scegli il lato in pixel** — a mano o con le frecce **−** e **+**. E' la
    risoluzione dello sprite finito.
-5. **✏️ Ritaglia a mano**, se serve. Gomma e ripristino pixel per pixel, con
-   zoom e annulla: e' la strada per i bordi complicati, e per i buchi di sfondo
-   *dentro* la sagoma, che l'automatico non puo' indovinare.
+5. **✏️ Ritaglia a mano**, se serve:
+   - **🩹 Gomma** cancella dove passi, **↩ Ripristina** riporta indietro;
+   - **✂ Lazo** traccia un contorno e tiene **solo quello che ci sta dentro**: e'
+     la via rapida per una sagoma complicata;
+   - **✋ Sposta** trascina l'immagine, **− +** ingrandiscono e **⤢** rimette
+     tutto nel riquadro. Da telefono funziona anche il **pizzico a due dita**;
+   - **↶ Annulla** toglie l'ultimo tratto.
+
+   Il ritaglio **resta** anche se dopo cambi tolleranza o lato in pixel: non e'
+   un'immagine congelata, e' una maschera che l'editor riapplica ogni volta.
 
 Poi due pulsanti, e **fanno due cose diverse**:
 
