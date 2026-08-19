@@ -41,10 +41,10 @@ export interface SpriteImporterDeps {
  * grandi (oltre 200px): la sorgente deve tenere il dettaglio prima di ridurla,
  * altrimenti la pixel-art finale la ingrandirebbe sfocandola.
  */
-const WORK_MAX = 1024;
+const WORK_MAX = 2048;
 
 /** Estremi e passo del lato in pixel dello sprite. Il passo e' quello delle frecce. */
-const SIZE = { min: 8, max: 512, step: 8, initial: 128 } as const;
+const SIZE = { min: 8, max: 1024, step: 8, initial: 128 } as const;
 
 export class SpriteImporter {
   private readonly root: HTMLDivElement;
@@ -68,6 +68,16 @@ export class SpriteImporter {
   private source: HTMLCanvasElement | null = null;
   /** Lo sprite finito dell'ultimo ricalcolo: quello che si aggiunge o si scarica. */
   private result: HTMLCanvasElement | null = null;
+
+  /**
+   * Il ritaglio fatto a mano, alla risoluzione della sorgente: 1 = tolto.
+   *
+   * Sta qui e non dentro l'immagine finita perche' e' un **passaggio della
+   * pipeline**: si applica dopo lo sfondo e prima della riduzione, quindi
+   * cambiare tolleranza o lato in pixel non lo cancella. Prima il ritaglio
+   * spariva a ogni ricalcolo.
+   */
+  private manualMask: Uint8Array | null = null;
 
   /** Vero mentre si aspetta il tocco che indica lo sfondo. */
   private picking = false;
@@ -124,6 +134,7 @@ export class SpriteImporter {
     this.fileInput.value = '';
     this.nameInput.value = '';
     this.categoryInput.value = 'importati';
+    this.manualMask = null;
     this.picking = false;
     this.picked = null;
     this.previewFit = null;
@@ -169,12 +180,14 @@ export class SpriteImporter {
 
     box.appendChild(this.controls());
 
-    // La matita: rifinire a mano i bordi che il flood-fill non indovina. Viene
-    // dopo l'automatico, e agisce sui pixel finali — quello che tagli si gioca.
+    // La matita: rifinire a mano cio' che il flood-fill non indovina. Non
+    // produce un'immagine ma una maschera, che entra nella pipeline dopo lo
+    // sfondo: e' il motivo per cui il ritaglio sopravvive a un cambio di
+    // tolleranza o di dimensione.
     this.cropButton = document.createElement('button');
     this.cropButton.className = 'ritaglia';
     this.cropButton.textContent = '✏️ Ritaglia a mano';
-    this.cropButton.title = 'Gomma e ripristino pixel per pixel, sui bordi complessi';
+    this.cropButton.title = 'Gomma, ripristino e lazo: il ritaglio resta anche se cambi le altre voci';
     this.cropButton.onclick = () => void this.crop();
     box.appendChild(this.cropButton);
 
@@ -333,10 +346,8 @@ export class SpriteImporter {
   private recompute(): void {
     if (!this.source) return;
 
-    const work = cloneCanvas(this.source);
-    if (this.removeBgInput.checked) {
-      removeBackground(work, Number(this.toleranceInput.value), this.picked ?? undefined);
-    }
+    const work = this.processedSource();
+    if (this.manualMask) applyMask(work, this.manualMask);
 
     // Gli estremi sono quelli dello stepper: erano cablati a 256, e un lato piu'
     // grande scelto con le frecce veniva zitto zitto dimezzato.
@@ -358,7 +369,11 @@ export class SpriteImporter {
     drawChecker(ctx, W, H);
 
     // Ingrandito quanto ci sta, mantenendo le proporzioni e i pixel quadrati.
-    const scale = Math.floor(Math.min(W / sprite.width, H / sprite.height)) || 1;
+    // Intero solo quando l'immagine ci sta comoda, per non sfocare i pixel;
+    // quando e' piu' grande del riquadro serve una scala frazionaria, altrimenti
+    // `floor` da' 0, si ripiega su 1x e lo sprite esce mezzo fuori dal bordo.
+    const raw = Math.min(W / sprite.width, H / sprite.height);
+    const scale = raw >= 1 ? Math.floor(raw) : raw;
     const dw = sprite.width * scale;
     const dh = sprite.height * scale;
     const x = (W - dw) / 2;
@@ -421,15 +436,26 @@ export class SpriteImporter {
    * dimensione o tolleranza rifa' la griglia e con lei i ritocchi — lo dice la
    * nota, invece di buttarli via in silenzio.
    */
+  /**
+   * L'immagine come esce dall'automatico: sorgente piu' sfondo tolto, senza il
+   * ritaglio a mano. E' la base su cui lavora la matita, ed e' cio' a cui torna
+   * il ripristino.
+   */
+  private processedSource(): HTMLCanvasElement {
+    const work = cloneCanvas(this.source!);
+    if (this.removeBgInput.checked) {
+      removeBackground(work, Number(this.toleranceInput.value), this.picked ?? undefined);
+    }
+    return work;
+  }
+
   private async crop(): Promise<void> {
-    if (!this.result) return;
-    const edited = await this.maskEditor.open(this.result);
-    if (!edited) return;
-    this.result = edited;
-    this.drawPreview(edited);
-    this.refreshNameHints();
-    this.note.textContent =
-      'Ritocchi a mano applicati. Cambiare dimensione o tolleranza li rifa’.';
+    if (!this.source) return;
+    const mask = await this.maskEditor.open(this.processedSource(), this.manualMask);
+    if (!mask) return;
+    this.manualMask = mask;
+    this.recompute();
+    this.note.textContent = 'Ritaglio applicato: resta anche se cambi tolleranza o dimensione.';
   }
 
   /** Abilita le azioni solo quando c'e' davvero un risultato da consegnare. */
@@ -710,6 +736,20 @@ function colorDist(d: Uint8ClampedArray, i: number, c: [number, number, number])
   const dg = d[i + 1]! - c[1];
   const db = d[i + 2]! - c[2];
   return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+/** Rende trasparenti i pixel segnati dal ritaglio a mano. */
+function applyMask(canvas: HTMLCanvasElement, mask: Uint8Array): void {
+  const ctx = canvas.getContext('2d')!;
+  const { width: w, height: h } = canvas;
+  // Una maschera di misura diversa e' di un'altra immagine: si ignora invece di
+  // applicarla sfalsata.
+  if (mask.length !== w * h) return;
+  const img = ctx.getImageData(0, 0, w, h);
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i]) img.data[i * 4 + 3] = 0;
+  }
+  ctx.putImageData(img, 0, 0);
 }
 
 /**

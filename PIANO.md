@@ -504,7 +504,48 @@ della sorgente, cosi' cambiare il lato in pixel non lo sposta. Finche' il
 contagocce e' armato l'anteprima mostra i colori veri, senza ritaglio: su uno
 sfondo tolto male non ci sarebbe piu' niente da indicare.
 
-Restano i bordi complessi, che nessun riferimento di colore puo' indovinare. Per
+Restano i bordi complessi, che nessun riferimento di colore puo' indovinare.
+
+### La matita, rifatta dopo averla usata
+
+La prima versione e' stata provata a mano e ne sono usciti sei difetti in fila.
+Tre avevano la stessa radice, ed e' il motivo per cui la cura non e' stata una
+toppa per sintomo ma un cambio di impianto.
+
+| Difetto | Radice |
+|---|---|
+| + e − ingrandivano anche la finestra | lo zoom scriveva `style.width/height`: la tela **era** l'elemento di layout, e il riquadro cresceva con lei |
+| Sposta non faceva niente | il visore scorreva, ma un contenuto centrato con `place-content: center` che deborda non e' raggiungibile con lo scorrimento |
+| lo sprite usciva dal bordo dell'anteprima, e "ingrandiva" alzando il lato | `Math.floor(scala) \|\| 1`: sopra i 192px del riquadro la scala intera e' 0, si ripiegava su 1x e l'immagine veniva disegnata a grandezza piena |
+| la gomma lasciava una fila di buchi | si dipingeva solo dove capitava un evento del puntatore: fra due eventi il dito ha gia' percorso della strada |
+| niente pizzico a due dita | la matita non li ascoltava |
+| il ritaglio spariva cambiando dimensione | `recompute` ricostruisce dalla sorgente, e i tratti a mano non erano nella pipeline |
+
+Le due decisioni che chiudono tutto:
+
+**Il visore e' a trasformazione, non a scorrimento.** La tela resta grande quanto
+l'immagine e vive dentro un riquadro di altezza fissa; zoom e spostamento stanno
+in un `transform` CSS. Non toccando il layout, ingrandire non puo' piu' far
+crescere la finestra, e spostare funziona anche quando l'immagine e' piu' piccola
+del visore — cosa che con lo scorrimento non poteva funzionare per definizione.
+Da qui vengono gratis il pizzico a due dita e la rotella, con lo zoom **ancorato**
+al punto che si sta guardando invece che al centro.
+
+**La matita non produce un'immagine: produce una maschera.** Un `Uint8Array`
+grande quanto la sorgente, dove 1 vuol dire "tolto", che l'importer applica
+**dopo** lo sfondo e **prima** della riduzione. Cambiare tolleranza o lato in
+pixel rifa' tutto il resto ma non tocca la maschera, quindi il ritaglio resta.
+E il ripristino torna alla base — cioe' a cio' che dice l'automatico in quel
+momento — invece che a un'immagine congelata.
+
+Il prezzo, dichiarato: si ritaglia alla risoluzione della **sorgente** e non a
+quella finale. Si perde la rifinitura al singolo pixel dello sprite ridotto; si
+guadagna un ritaglio che sopravvive a tutto il resto, ed era quello che serviva.
+
+Il **lazo** e' arrivato con la stessa passata: si traccia un contorno e resta
+solo cio' che ci sta dentro. E' la richiesta "ritagliare con delle linee", ed e'
+anche la risposta piu' rapida a una sagoma complicata — dove la gomma sarebbe
+lavoro di minuti. Per
 quelli c'e' `editor/MaskEditor.ts`, la matita: gomma, ripristino, pennello,
 zoom, annulla per tratto. Lavora sui **pixel finali** e non sull'immagine ad alta
 risoluzione: un ritaglio fatto prima della riduzione verrebbe ricampionato, e il
@@ -702,6 +743,7 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Formato progetto | `level/project.ts` | piu' livelli in un file; i livelli sono valori immutabili |
 | Catalogo dei livelli | `editor/LevelBrowser.ts` | elenco con ricerca; le schede sono solo gli aperti |
 | Fondali | `scenes/Backdrop.ts` | immagini dietro la scena, per livello; strumento 🖼 nell'editor |
+| Matita e lazo | `editor/MaskEditor.ts` | gomma, ripristino, lazo e pizzico; produce una maschera, non un'immagine |
 | Tasto indietro | `editor/BackGuard.ts` | chiude il pannello in cima, e chiede prima di lasciare la scheda |
 | Cassetto degli sprite | `editor/SpriteDrawer.ts` | catalogo per categoria e usati nel livello; in basso restano i recenti |
 | Editor d'immagine | `editor/SpriteImporter.ts` | togli sfondo, pixel-art, sprite di sessione + PNG da committare |
@@ -739,6 +781,13 @@ Test principali superati:
   figura appoggiata a un angolo l'automatico **la mangia** — il pixel della
   figura esce trasparente — mentre indicando lo sfondo col contagocce la figura
   resta rossa e opaca e il bianco attorno se ne va
+- la matita, sui sei difetti trovati usandola: un tratto veloce **da un capo
+  all'altro in un solo salto** lascia una linea continua e non una fila di buchi;
+  il ritaglio **resta dopo aver cambiato il lato in pixel**, e il resto
+  dell'immagine resta con lui; ingrandire quattro volte **non cambia di un pixel**
+  la finestra; Sposta muove davvero la tela; il lazo tiene cio' che sta dentro il
+  contorno e toglie gli angoli; con un lato da 512 l'anteprima **ci sta dentro**
+  invece di uscire dal bordo
 - ritaglio a mano: una gommata al centro della griglia arriva **fino alla texture
   finale**, che li' torna trasparente; le frecce del lato in pixel muovono il
   valore di un passo in su e in giu'
@@ -860,9 +909,10 @@ Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
   in cui non puo' sbagliare. Su uno sfondo sfumato o rumoroso puo' mangiare
   troppo o troppo poco; il contagocce sposta il riferimento ma non rende
   uniforme uno sfondo che non lo e'.
-- **L'ergonomia della matita su un telefono vero.** Pennello, zoom a frecce e
-  pan con le dita su uno sprite grande sono stati provati col mouse: potrebbe
-  servire un pinch-to-zoom vero, come ce l'ha gia' la scena.
+- **La matita su un telefono vero.** Il pizzico a due dita e lo spostamento sono
+  scritti e provati col protocollo, non con una mano: restano da guardare. Il
+  lazo tracciato col dito su una sagoma complicata e' l'altra cosa che nessun
+  test dice.
 - **Nessuno sprite importato e' ancora stato committato e ripreso dal gioco.**
   Il giro completo dell'ibrido — scarica, commit, deploy, il blocco che torna
   come sprite di build — e' costruito ma non percorso fino in fondo.
@@ -955,7 +1005,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | **`localStorage` sta in ~5 MB** | Un progetto da cento livelli pieni ci arriva (~2 MB, ma cresce). Ora Salva lo dice invece di fingere, e resta Scarica; la soluzione vera e' IndexedDB |
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
 | **Uno sprite di sessione sembra permanente** | Si piazza come gli altri e sta nel cassetto come gli altri, ma vive finche' non si ricarica. Un livello salvato che lo nomina mostra un buco a chiunque altro. Il pannello dice dove committarlo, ma e' un avviso da leggere contro un'interfaccia che non lo mostra |
-| **Sprite grandi e peso del PNG** | Il lato in pixel arriva a 512. Uno sprite a quella risoluzione non pesa piu' come i 300 byte di `basic.png`, e finisce nel sito e nell'APK come i fondali. Vale la stessa regola: tenerli piccoli quanto basta |
+| **Sprite grandi e peso del PNG** | Il lato in pixel arriva a 1024 e la sorgente di lavoro a 2048. Uno sprite a quella risoluzione non pesa piu' come i 300 byte di `basic.png`, e finisce nel sito e nell'APK come i fondali. Vale la stessa regola: tenerli piccoli quanto basta |
 | Lo sfondo tolto in automatico e' grezzo | Flood-fill con una soglia: sugli sfondi piatti va, sulle foto vere non e' detto. Il contagocce sposta il riferimento e la matita e' la scialuppa, ma su un ritaglio complesso resta lavoro manuale |
 | ~~Undo a snapshot dell'intero progetto~~ | **Caduto.** Lo snapshot resta l'intero progetto, ma i livelli fermi ci finiscono per riferimento: 0,02 ms con cento livelli, contro 5,14 |
 | Ciclo commit -> gioco live ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |
