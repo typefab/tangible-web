@@ -69,6 +69,11 @@ conversazione, non una modifica.
   commit, compare". La **sottocartella e' la categoria** del cassetto, ed e'
   facoltativa: un PNG lasciato in `blocks/` finisce in "Generale" e compare
   lo stesso.
+- **La taglia sta nel nome del file, non nell'id.** `albero@2.png` e'
+  `albero` largo due celle: il suffisso non entra nell'id, come non ci entra la
+  sottocartella. E' quello che permette di cambiare idea sulla taglia senza
+  invalidare i `level.json` che nominano quel blocco. Un `@` senza un numero
+  buono dopo resta nell'id, cosi' un file chiamato davvero cosi' non sparisce.
 - **Uno sprite fatto nell'editor d'immagine vive solo in quella sessione.**
   `registerRuntimeBlock()` lo rende piazzabile subito, ma resta un elenco
   separato dai `BLOCKS` di build apposta: non e' nel repository, sparisce alla

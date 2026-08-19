@@ -448,6 +448,9 @@ export class LevelEditor {
       label: sprite.label,
       url: sprite.dataUrl,
       category: sprite.category,
+      // Senza la taglia, uno sprite largo due celle si vedrebbe largo una fino
+      // al commit: l'anteprima direbbe una cosa e la scena un'altra.
+      scale: sprite.scale,
     });
 
     this.chooseBlock(sprite.id);

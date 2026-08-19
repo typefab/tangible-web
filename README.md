@@ -248,6 +248,13 @@ Fine: compare nel cassetto dell'editor con la sua anteprima, e' piazzabile, ed
 entra nell'inventario del gioco. Nessuna riga di codice da toccare — l'elenco
 degli sprite lo genera Vite leggendo la cartella durante la build.
 
+**Il nome del file può dire quanto è largo.** `albero@2.png` è largo **due
+celle**; senza suffisso è largo una. Il `@2` **non fa parte del nome del blocco**:
+se domani lo rifai `albero@3.png` è sempre lo stesso `albero`, e i livelli che lo
+usano continuano a funzionare — cambia solo quanto è grande. Serve perché il
+gioco riporta ogni blocco alla larghezza della cella: è questa la leva per avere
+oggetti di dimensioni diverse, non un PNG più grande.
+
 **Le sottocartelle sono le categorie del cassetto.** Un PNG in
 `src/assets/blocks/natura/` finisce sotto "natura"; uno lasciato direttamente in
 `blocks/` finisce in "Generale" e funziona come prima. Non sei obbligato a
@@ -276,9 +283,13 @@ dentro la pagina, quindi funziona anche dal telefono:
    riferimento e' quel colore soltanto, e il punto che hai toccato viene tolto
    anche se e' chiuso dentro la figura — il vuoto nel manico di una tazza. Il
    quadratino accanto mostra il colore preso; **↺** torna agli angoli.
-4. **Scegli il lato in pixel** — a mano o con le frecce **−** e **+**. E' la
-   risoluzione dello sprite finito.
-5. **✏️ Ritaglia a mano**, se serve:
+4. **Scegli il lato in pixel** — a mano o con le frecce **−** e **+**. E' solo
+   la **nitidezza**: il gioco riporta comunque ogni blocco alla larghezza della
+   cella, quindi un PNG piu' grande non fa un oggetto piu' grande.
+5. **Largo (celle)** e **Appoggio sulla cella** decidono quanto sara' grande
+   davvero e dove poggia. L'anteprima **"come starà sulla griglia"** te lo
+   mostra sul rombo mentre lo regoli.
+6. **✏️ Ritaglia a mano**, se serve:
    - **🩹 Gomma** cancella dove passi, **↩ Ripristina** riporta indietro;
    - **✂ Lazo** traccia un contorno e tiene **solo quello che ci sta dentro**: e'
      la via rapida per una sagoma complicata;
