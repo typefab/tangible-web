@@ -84,6 +84,22 @@ export class SpriteImporter {
     this.root.hidden = true;
   }
 
+  get isOpen(): boolean {
+    return !this.root.hidden;
+  }
+
+  /**
+   * Chiude cio' che di suo sta piu' in alto: prima la matita, poi il pannello.
+   * `false` se non c'era niente di aperto. Lo usa il tasto indietro, che scende
+   * la pila un gradino per volta invece di spazzare via tutto.
+   */
+  cancelTopmost(): boolean {
+    if (this.maskEditor.cancel()) return true;
+    if (!this.isOpen) return false;
+    this.close();
+    return true;
+  }
+
   private reset(): void {
     this.source = null;
     this.result = null;

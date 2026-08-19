@@ -518,6 +518,36 @@ del file tornerebbe alla ricarica e quello di sessione no, e la confusione
 sarebbe garantita. Rifare un import con lo stesso nome di un altro import,
 invece, si puo': li' sostituire e' esattamente cio' che si intende.
 
+### Indietro non vuol dire uscire
+
+Sul telefono indietro e' il gesto con cui si chiude qualcosa: un pannello, una
+finestra, un pentimento. Nell'editor chiudeva la scheda — e con la scheda se ne
+andava il lavoro non ancora scaricato. Il momento peggiore possibile: succedeva
+**mentre si cercava di chiudere un pannello**, cioe' quando nessuno se lo aspetta.
+
+Una pagina non puo' disattivare quel tasto, ma puo' dargli qualcosa da mangiare:
+`BackGuard` spinge nella cronologia una voce sentinella, che non cambia
+l'indirizzo. Il primo indietro consuma quella invece di lasciare la pagina, e
+arriva come `popstate` — dove diventa una decisione:
+
+1. c'e' un pannello aperto -> si chiude quello, e la sentinella si rimette;
+2. non c'e' niente da chiudere -> **"Vuoi chiudere la scheda?"**;
+3. si conferma -> si fa l'indietro vero, quello che il telefono avrebbe fatto.
+
+L'ordine di chiusura e' quello dei piani di sovrapposizione — matita, importer,
+cassetto, catalogo, foglio ⋯ — perche' e' anche l'ordine in cui uno se li
+aspetta: si toglie di mezzo cio' che copre il resto. Una domanda gia' aperta
+consuma l'indietro senza fare altro: va risposta, non scavalcata.
+
+Due cose che questa strada **non** puo' fare, e vanno dette. Una pagina non
+chiude una scheda che non ha aperto lei: il passo 3 e' un `history.back()`, che
+chiude la scheda solo se l'editor era la prima pagina — altrimenti si torna
+dov'era prima, che e' comunque cio' che il tasto avrebbe fatto. E mentre la
+domanda e' aperta la sentinella non c'e': un secondo indietro dato in quel
+momento esce davvero. E' una scelta — rimetterla li' avrebbe reso l'uscita un
+salto all'indietro che il browser rifiuta quando davanti non ha niente, cioe'
+un "Chiudi" che non chiude. L'autosave su `beforeunload` resta la rete sotto.
+
 ### Cento livelli: catalogo e schede sono due cose diverse
 
 Le schede elencavano **tutti** i livelli. Con due va bene; con venti la striscia
@@ -658,6 +688,7 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Formato progetto | `level/project.ts` | piu' livelli in un file; i livelli sono valori immutabili |
 | Catalogo dei livelli | `editor/LevelBrowser.ts` | elenco con ricerca; le schede sono solo gli aperti |
 | Fondali | `scenes/Backdrop.ts` | immagini dietro la scena, per livello; strumento 🖼 nell'editor |
+| Tasto indietro | `editor/BackGuard.ts` | chiude il pannello in cima, e chiede prima di lasciare la scheda |
 | Cassetto degli sprite | `editor/SpriteDrawer.ts` | catalogo per categoria e usati nel livello; in basso restano i recenti |
 | Editor d'immagine | `editor/SpriteImporter.ts` | togli sfondo, pixel-art, sprite di sessione + PNG da committare |
 | Ritaglio a mano | `editor/MaskEditor.ts` | gomma e ripristino sui pixel finali, con zoom e annulla per tratto |
@@ -685,6 +716,11 @@ Test principali superati:
   come file diventa uno sprite **piazzabile subito** — texture registrata, voce
   nel cassetto, blocco che si posa sulla griglia; togliendo lo sfondo gli angoli
   restano a `alpha` 0 e la figura al centro resta opaca e del suo colore
+- tasto indietro, con l'indietro vero del browser: col cassetto aperto lo chiude
+  e non chiede niente; lo stesso col catalogo dei livelli; senza niente aperto
+  compare "Vuoi chiudere la scheda?" e **"Resta qui" tiene la pagina**; la
+  domanda torna anche al secondo indietro, cioe' la sentinella si rimette; con
+  una pennellata non salvata la domanda lo dice
 - ritaglio a mano: una gommata al centro della griglia arriva **fino alla texture
   finale**, che li' torna trasparente; le frecce del lato in pixel muovono il
   valore di un passo in su e in giu'

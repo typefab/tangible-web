@@ -75,6 +75,17 @@ export class MaskEditor {
     });
   }
 
+  /**
+   * Chiude annullando, come il pulsante Annulla. `false` se non era aperto:
+   * serve al tasto indietro, che chiede al pannello piu' in alto se aveva
+   * qualcosa da chiudere.
+   */
+  cancel(): boolean {
+    if (this.root.hidden) return false;
+    this.done(false);
+    return true;
+  }
+
   private done(keep: boolean): void {
     this.root.hidden = true;
     const out = keep ? this.canvas : null;

@@ -75,6 +75,11 @@ conversazione, non una modifica.
   ricarica, e un `level.json` che lo nomina mostra un buco a chiunque altro
   finche' il PNG non viene committato. L'interfaccia lo deve dire — la
   differenza non si vede.
+- **Il tasto indietro chiude, non esce.** `BackGuard` tiene una voce di
+  cronologia come sentinella: il primo indietro chiude il pannello piu' in alto,
+  e solo con niente aperto chiede se chiudere la scheda. Chi aggiunge un
+  pannello modale lo aggiunge anche a `closeTopmost()`, altrimenti l'indietro
+  scavalca il suo e chiude quello sotto.
 - **La striscia in basso e' i recenti, non il catalogo.** Il catalogo intero sta
   nel cassetto 🎨: con molti sprite una striscia che li elenca tutti diventa
   illeggibile, ed e' il motivo per cui e' stata divisa.

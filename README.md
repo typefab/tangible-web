@@ -64,6 +64,10 @@ Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
 - appoggiando il secondo dito, il tratto appena iniziato dal primo viene
   annullato: non resti con un blocco piazzato dove hai poggiato la mano
 - **⤢** riporta la vista al centro della griglia
+- **il tasto indietro del telefono chiude, non esce**: chiude il pannello che
+  hai aperto — matita, importa sprite, cassetto, catalogo dei livelli, il foglio
+  ⋯ — e solo quando non c'e' piu' niente da chiudere ti chiede se vuoi chiudere
+  la scheda
 
 **Disegnare**
 
@@ -328,6 +332,8 @@ sprite mostra un buco a chiunque altro lo apra.
 - **Contagocce**: tieni premuto un blocco e il suo tipo torna in mano
 - **Fondali**: immagini dietro la scena, una per livello o quante ne vuoi,
   spostabili e ridimensionabili
+- **Il tasto indietro non chiude la scheda per sbaglio**: prima chiude il
+  pannello aperto, poi chiede conferma — e se hai lavoro non salvato te lo dice
 - **Barra pensata per il telefono**: i comandi rari stanno dietro **⋯**, e alla
   scena resta piu' di due terzi dello schermo
 

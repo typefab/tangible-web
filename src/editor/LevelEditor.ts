@@ -15,6 +15,7 @@ import { chooseDialog } from './dialog';
 import { LevelBrowser, type BrowserLevel } from './LevelBrowser';
 import { SpriteDrawer } from './SpriteDrawer';
 import { SpriteImporter, type ImportedSprite } from './SpriteImporter';
+import { BackGuard } from './BackGuard';
 import type { Backdrop } from '../scenes/Backdrop';
 
 /**
@@ -149,6 +150,8 @@ export class LevelEditor {
   private spriteDrawer!: SpriteDrawer;
   /** L'editor d'immagine, per importare sprite nuovi da una foto. */
   private spriteImporter!: SpriteImporter;
+  /** Il tasto indietro del telefono: chiude un pannello, o chiede prima di uscire. */
+  private readonly backGuard: BackGuard;
   /**
    * Gli sprite piazzati di recente, il piu' recente per primo. E' quello che
    * mostra la striscia in basso: costruendo si torna sugli stessi pochi, e
@@ -274,12 +277,17 @@ export class LevelEditor {
     this.spriteImporter = new SpriteImporter({
       onImport: (sprite) => this.adoptImportedSprite(sprite),
     });
+    this.backGuard = new BackGuard({
+      closeTopmost: () => this.closeTopmost(),
+      confirmLeave: () => this.confirmLeave(),
+    });
 
     this.buildToolbar();
     this.buildLevelTabs();
     this.buildLayerPanel();
     this.bindInput();
     this.bindKeyboard();
+    this.backGuard.start();
     this.resetView();
 
     // Il lavoro in sospeso puo' richiedere una domanda, e una domanda non si
@@ -446,6 +454,58 @@ export class LevelEditor {
     this.noteUsed(sprite.id);
     this.spriteDrawer.refresh();
   }
+
+  // --------------------------------------------------------- tasto indietro
+
+  /**
+   * Chiude il pannello piu' in alto, dal piu' modale al meno. `false` se non
+   * c'era niente da chiudere: allora il tasto indietro passa alla domanda.
+   *
+   * L'ordine e' quello dei piani di sovrapposizione, perche' e' anche l'ordine
+   * in cui uno se li aspetta: si toglie di mezzo quello che copre gli altri.
+   */
+  private closeTopmost(): boolean {
+    // Matita e importer stanno sopra tutto, e li chiude l'importer che li possiede.
+    if (this.spriteImporter.cancelTopmost()) return true;
+
+    // Una domanda aperta va risposta, non scavalcata: l'indietro si consuma li'
+    // senza fare altro, altrimenti chiuderebbe anche il pannello sotto.
+    if (document.getElementById('editor-dialog')) return true;
+
+    if (this.browser.open) {
+      this.browser.close();
+      return true;
+    }
+    if (this.spriteDrawer.isOpen) {
+      this.spriteDrawer.close();
+      return true;
+    }
+    if (this.root.classList.contains('menu-open')) {
+      this.closeMenu();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * La domanda del tasto indietro. Quando c'e' lavoro non salvato lo dice: e'
+   * l'ultimo momento utile per accorgersene, ed e' il modo piu' facile di
+   * perdere una serata.
+   */
+  private async confirmLeave(): Promise<boolean> {
+    const scelta = await chooseDialog(
+      'Vuoi chiudere la scheda?',
+      this.dirty
+        ? 'Ci sono modifiche non salvate. Restano in memoria su questo browser, ma il gioco pubblicato le vede solo dopo Scarica e commit su GitHub.'
+        : 'L\u2019editor si chiude.',
+      [
+        { id: 'resta', label: 'Resta qui' },
+        { id: 'esci', label: 'Chiudi la scheda', danger: true },
+      ],
+    );
+    return scelta === 'esci';
+  }
+
 
   /** Sostituisce tutto il progetto e apre il livello indicato. */
   private adopt(project: SerializedProject, levelIndex: number, open?: number[]): void {
