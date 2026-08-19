@@ -136,6 +136,14 @@ I tipi di blocco non sono piu' scritti in `config.ts`: sono i PNG dentro
 **La cartella decide la categoria, il nome del file decide l'id.** Caricare un
 PNG e fare commit basta a farlo comparire nella palette e nell'inventario.
 
+La regola sulla cartella e' diventata vera davvero solo con il cassetto: il glob
+e' `blocks/**/*.png`, e il primo livello di sottocartella e' la categoria —
+`blocks/natura/tree.png` sta in "natura". Le cartelle restano **facoltative**,
+perche' la promessa non deve diventare "carichi un PNG *nel posto giusto*": un
+file lasciato in `blocks/` finisce in "Generale" e compare come prima. Le
+categorie sono un elenco piatto e non un albero: il cassetto e' un menu, non un
+file manager.
+
 Il prezzo e' che l'elenco esiste solo dopo la build, quindi `BlockType` non puo'
 piu' essere l'unione degli id: e' `string`, e chi legge `level.json` valida a
 runtime con `resolveBlock()`. Una mappa di alias tiene in vita gli id vecchi
@@ -436,6 +444,110 @@ Dettagli che vengono dall'uso e non dal disegno:
 - la chiave `backgrounds` **non compare** nei livelli che non ne hanno: un
   `level.json` fatto prima, riaperto e riscritto, resta identico byte a byte.
 
+### Il cassetto: la striscia non e' il catalogo
+
+La palette elencava **tutti** i blocchi in una striscia in fondo alla barra. Con
+due sprite di prova funziona; con un catalogo vero e' la stessa storia delle
+schede — una striscia che scorre all'infinito non e' navigabile, e non c'e'
+posto per dire che un blocco appartiene a una famiglia.
+
+La divisione e' fra due domande diverse:
+
+- **"cosa esiste"** — il cassetto 🎨, aperto da sinistra: il catalogo intero,
+  diviso per categoria, piu' una sezione **usati nel livello**;
+- **"cosa sto usando adesso"** — la striscia in basso, che ora tiene solo gli
+  sprite **usati di recente**, il piu' recente per primo.
+
+I recenti si riempiono dal **piazzamento vero** (pennello, riempi area,
+contagocce), non dalla semplice selezione: aver guardato uno sprite non e'
+averlo usato. All'apertura di un livello si seminano da cio' che c'e' gia'
+dentro, altrimenti riaprendo un lavoro la striscia sarebbe vuota proprio dove
+serve.
+
+Il cassetto sta in `editor/SpriteDrawer.ts` e non dentro `LevelEditor`: non sa
+niente di layer, undo o proiezione, e tenerlo separato tiene onesta quella
+ignoranza. Come tutto il resto dell'editor **non ha un renderer proprio** — le
+anteprime sono il base64 del texture manager di Phaser, lo stesso della palette,
+quindi non puo' mostrare un blocco diverso da quello che il gioco disegna.
+
+Anche il pulsante dei livelli si e' spostato: 🎨 a sinistra, 📚 a destra. Sono le
+due domande piu' grosse dell'editor — cosa piazzo, e dove — e stanno agli
+estremi invece di contendersi lo stesso angolo.
+
+### Sprite fatti nel browser, e l'ibrido che ne consegue
+
+Serviva partire da un'immagine qualunque e arrivare a uno sprite. Il vincolo
+"zero installazioni" esclude un editor d'immagine desktop, e "solo HTTPS
+gratuiti" esclude i servizi: quindi la pipeline gira in `<canvas>`, dentro la
+pagina. `editor/SpriteImporter.ts`: si carica dal file-picker — che su telefono
+e' galleria, fotocamera o file — si toglie lo sfondo, si riduce a pixel-art.
+
+Lo sfondo si toglie con un **flood-fill dai bordi**, non con una sostituzione
+globale del colore: un colore uguale allo sfondo ma *dentro* la figura non deve
+sparire, perche' non e' connesso al bordo. Il riferimento sono i quattro angoli,
+e la tolleranza dice quanto ci si puo' allontanare. Niente modelli da scaricare:
+sarebbero megabyte e una dipendenza esterna, per un problema che su sfondi
+piatti si risolve cosi'.
+
+Restano due casi che l'automatico non puo' indovinare — un angolo occupato dalla
+figura, e i buchi di sfondo dentro la sagoma — piu' i bordi complessi. Per
+quelli c'e' `editor/MaskEditor.ts`, la matita: gomma, ripristino, pennello,
+zoom, annulla per tratto. Lavora sui **pixel finali** e non sull'immagine ad alta
+risoluzione: un ritaglio fatto prima della riduzione verrebbe ricampionato, e il
+bordo che si e' disegnato non sarebbe quello che finisce nel gioco. Il prezzo e'
+che cambiare dimensione o tolleranza rifa' la griglia e con lei i ritocchi —
+detto da una nota, invece di buttarli via in silenzio.
+
+**La persistenza e' un ibrido, ed e' la parte che va spiegata.** Un editor che
+gira su Pages non puo' scrivere nel repository: il sito e' statico, e "GitHub e'
+il ponte" e' un vincolo, non un dettaglio. Quindi:
+
+| | Dove vive | Fin quando |
+|---|---|---|
+| **Aggiungi al livello** | texture di sessione + voce di catalogo runtime | fino alla ricarica, e solo in quel browser |
+| **Scarica PNG** | il file da committare in `src/assets/blocks/<categoria>/` | per sempre, e per tutti |
+
+I blocchi runtime stanno in un elenco separato dai `BLOCKS` di build apposta:
+mescolarli avrebbe fatto sembrare permanente una cosa che non lo e'. Il pannello
+scrive il percorso esatto in cui committare, perche' la differenza fra le due
+meta' non si vede guardando lo schermo — si vede solo dopo, quando qualcun altro
+apre il livello e trova un buco.
+
+Un id gia' presente nel repository non si puo' sovrascrivere in sessione: quello
+del file tornerebbe alla ricarica e quello di sessione no, e la confusione
+sarebbe garantita. Rifare un import con lo stesso nome di un altro import,
+invece, si puo': li' sostituire e' esattamente cio' che si intende.
+
+### Indietro non vuol dire uscire
+
+Sul telefono indietro e' il gesto con cui si chiude qualcosa: un pannello, una
+finestra, un pentimento. Nell'editor chiudeva la scheda — e con la scheda se ne
+andava il lavoro non ancora scaricato. Il momento peggiore possibile: succedeva
+**mentre si cercava di chiudere un pannello**, cioe' quando nessuno se lo aspetta.
+
+Una pagina non puo' disattivare quel tasto, ma puo' dargli qualcosa da mangiare:
+`BackGuard` spinge nella cronologia una voce sentinella, che non cambia
+l'indirizzo. Il primo indietro consuma quella invece di lasciare la pagina, e
+arriva come `popstate` — dove diventa una decisione:
+
+1. c'e' un pannello aperto -> si chiude quello, e la sentinella si rimette;
+2. non c'e' niente da chiudere -> **"Vuoi chiudere la scheda?"**;
+3. si conferma -> si fa l'indietro vero, quello che il telefono avrebbe fatto.
+
+L'ordine di chiusura e' quello dei piani di sovrapposizione — matita, importer,
+cassetto, catalogo, foglio ⋯ — perche' e' anche l'ordine in cui uno se li
+aspetta: si toglie di mezzo cio' che copre il resto. Una domanda gia' aperta
+consuma l'indietro senza fare altro: va risposta, non scavalcata.
+
+Due cose che questa strada **non** puo' fare, e vanno dette. Una pagina non
+chiude una scheda che non ha aperto lei: il passo 3 e' un `history.back()`, che
+chiude la scheda solo se l'editor era la prima pagina — altrimenti si torna
+dov'era prima, che e' comunque cio' che il tasto avrebbe fatto. E mentre la
+domanda e' aperta la sentinella non c'e': un secondo indietro dato in quel
+momento esce davvero. E' una scelta — rimetterla li' avrebbe reso l'uscita un
+salto all'indietro che il browser rifiuta quando davanti non ha niente, cioe'
+un "Chiudi" che non chiude. L'autosave su `beforeunload` resta la rete sotto.
+
 ### Cento livelli: catalogo e schede sono due cose diverse
 
 Le schede elencavano **tutti** i livelli. Con due va bene; con venti la striscia
@@ -576,7 +688,11 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Formato progetto | `level/project.ts` | piu' livelli in un file; i livelli sono valori immutabili |
 | Catalogo dei livelli | `editor/LevelBrowser.ts` | elenco con ricerca; le schede sono solo gli aperti |
 | Fondali | `scenes/Backdrop.ts` | immagini dietro la scena, per livello; strumento 🖼 nell'editor |
-| Test | `test/`, `playwright.config.ts` | 92 test sul gioco che gira, in CI a ogni push |
+| Tasto indietro | `editor/BackGuard.ts` | chiude il pannello in cima, e chiede prima di lasciare la scheda |
+| Cassetto degli sprite | `editor/SpriteDrawer.ts` | catalogo per categoria e usati nel livello; in basso restano i recenti |
+| Editor d'immagine | `editor/SpriteImporter.ts` | togli sfondo, pixel-art, sprite di sessione + PNG da committare |
+| Ritaglio a mano | `editor/MaskEditor.ts` | gomma e ripristino sui pixel finali, con zoom e annulla per tratto |
+| Test | `test/`, `playwright.config.ts` | 96 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
@@ -592,8 +708,22 @@ Test principali superati:
   vecchio formato piatto si apre come layer "Terreno" con gli id tradotti;
   `"layers": []` non lascia la scena senza piani; un blocco con id inesistente
   viene scartato invece di diventare uno sprite invisibile
-- catalogo: un PNG copiato in `src/assets/blocks/` compare nella palette con
-  etichetta e anteprima corrette **senza toccare il codice**
+- catalogo: un PNG copiato in `src/assets/blocks/` compare nel cassetto con
+  etichetta e anteprima corrette **senza toccare il codice**. Il test legge la
+  cartella dal disco e la confronta con quello che l'editor mostra, sottocartelle
+  comprese: un elenco scritto a mano tornerebbe rosso al primo PNG aggiunto
+- editor d'immagine, sulla pipeline vera dentro il browser: un'immagine caricata
+  come file diventa uno sprite **piazzabile subito** — texture registrata, voce
+  nel cassetto, blocco che si posa sulla griglia; togliendo lo sfondo gli angoli
+  restano a `alpha` 0 e la figura al centro resta opaca e del suo colore
+- tasto indietro, con l'indietro vero del browser: col cassetto aperto lo chiude
+  e non chiede niente; lo stesso col catalogo dei livelli; senza niente aperto
+  compare "Vuoi chiudere la scheda?" e **"Resta qui" tiene la pagina**; la
+  domanda torna anche al secondo indietro, cioe' la sentinella si rimette; con
+  una pennellata non salvata la domanda lo dice
+- ritaglio a mano: una gommata al centro della griglia arriva **fino alla texture
+  finale**, che li' torna trasparente; le frecce del lato in pixel muovono il
+  valore di un passo in su e in giu'
 - schede: due livelli dallo stesso file, il cambio scheda monta l'altro livello
   e ognuno conserva i propri blocchi; crea, duplica ed elimina; **Ctrl+Z annulla
   anche le operazioni sulle schede**, perche' lo snapshot contiene il progetto
@@ -642,6 +772,19 @@ Test principali superati:
 4. **CRLF nelle GitHub Actions**: Git su Windows avrebbe convertito gli script
    shell, che sul runner Linux falliscono con `\r: command not found`. Prevenuto
    con `.gitattributes`.
+5. **Due pulsanti con la stessa classe, e 13 test rossi letti come verdi.** Il
+   cassetto degli sprite era nato con `class="elenco"`, la stessa del catalogo
+   dei livelli: `#level-tabs .elenco` — come lo cercano i test — ha cominciato a
+   prendere il cassetto, e tredici prove su schede, fondali e selezione sono
+   andate in timeout. Il cassetto ha una classe sua, e `elenco` e' tornata a
+   voler dire una cosa sola.
+
+   L'errore vero pero' e' stato nel **leggere l'esito**: `83 passed` in fondo
+   all'output e' stato preso per "tutto verde" senza confrontarlo col totale, e
+   la riga stava sotto l'elenco dei falliti. Due PR sono state mergiate cosi'.
+   Regola imparata, finita anche in `CLAUDE.md`: il numero che conta e' quello
+   dei test **eseguiti contro quelli esistenti**, e `passed` da solo non dice
+   niente.
 
 ### Il gioco e' stato visto girare — 8 agosto 2026
 
@@ -694,6 +837,17 @@ Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
   da 390x780 con il mouse — e i test toccano lo schermo via protocollo, che non
   e' la stessa cosa di un dito.
 - **L'APK non e' mai stato installato**: e' stato prodotto, non provato.
+- **Il flood-fill non e' mai stato provato su una foto vera.** I test lo
+  inchiodano su un'immagine sintetica — sfondo pieno, figura netta — che e' il
+  caso in cui non puo' sbagliare. Su uno sfondo sfumato, rumoroso, o con la
+  figura che tocca il bordo puo' mangiare troppo o troppo poco, e la tolleranza
+  potrebbe non bastare a rimediare.
+- **L'ergonomia della matita su un telefono vero.** Pennello, zoom a frecce e
+  pan con le dita su uno sprite grande sono stati provati col mouse: potrebbe
+  servire un pinch-to-zoom vero, come ce l'ha gia' la scena.
+- **Nessuno sprite importato e' ancora stato committato e ripreso dal gioco.**
+  Il giro completo dell'ibrido — scarica, commit, deploy, il blocco che torna
+  come sprite di build — e' costruito ma non percorso fino in fondo.
 
 ### Avaria GitHub del 6 agosto 2026
 
@@ -719,7 +873,8 @@ primo push.
 ```
 src/assets/
   catalog.ts     <- l'elenco, generato da import.meta.glob
-  blocks/        basic.png, stack.png…   -> palette e inventario, automatici
+  blocks/        basic.png, stack.png…   -> cassetto e inventario, automatici
+    <categoria>/ una sottocartella = una categoria del cassetto (facoltativa)
   characters/    player.png
   ui/            joystick-border.png, joystick-thumb.png
 public/
@@ -751,11 +906,21 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 7. ~~Copia e incolla della selezione~~ — **fatto**, anche fra schede
 8. ~~Produrre il primo APK~~ — **fatto**, 6,5 MB negli Artifacts. Resta da
    **installarlo su un telefono vero**
-9. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
-   selezione e dimensione dei pulsanti sono tarati su un viewport, non su una
-   mano. L'ingombro della barra, che era il lato misurabile senza avere il
-   telefono in mano, e' stato ridotto — vedi "Quanto schermo resta per costruire"
-10. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+9. ~~Cassetto degli sprite per categoria~~ — **fatto**, col catalogo diviso per
+   cartella e i recenti nella striscia in basso
+10. ~~Fare uno sprite da un'immagine, dentro il browser~~ — **fatto**: togli
+    sfondo, pixel-art, ritaglio a mano, e l'ibrido sessione/commit
+11. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
+    selezione e dimensione dei pulsanti sono tarati su un viewport, non su una
+    mano. L'ingombro della barra, che era il lato misurabile senza avere il
+    telefono in mano, e' stato ridotto — vedi "Quanto schermo resta per costruire"
+12. **Percorrere il giro completo di uno sprite importato**: scarica, commit,
+    deploy, e ritrovarlo come blocco di build. E' l'unica prova che l'ibrido
+    chiude il cerchio
+13. **Contagocce per lo sfondo** nell'editor d'immagine: indicare col dito il
+    colore da togliere invece di dedurlo dai quattro angoli. E' il rimedio al
+    caso "l'angolo e' occupato dalla figura", che oggi non ha rimedio
+14. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
 
@@ -772,5 +937,8 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | **Salva non porta il lavoro nel gioco** | Salva scrive in `localStorage`, solo Scarica + upload su GitHub aggiorna il gioco. La UI lo dice in tre punti, ma resta il modo piu' facile di perdere una serata |
 | **`localStorage` sta in ~5 MB** | Un progetto da cento livelli pieni ci arriva (~2 MB, ma cresce). Ora Salva lo dice invece di fingere, e resta Scarica; la soluzione vera e' IndexedDB |
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
+| **Uno sprite di sessione sembra permanente** | Si piazza come gli altri e sta nel cassetto come gli altri, ma vive finche' non si ricarica. Un livello salvato che lo nomina mostra un buco a chiunque altro. Il pannello dice dove committarlo, ma e' un avviso da leggere contro un'interfaccia che non lo mostra |
+| **Sprite grandi e peso del PNG** | Il lato in pixel arriva a 512. Uno sprite a quella risoluzione non pesa piu' come i 300 byte di `basic.png`, e finisce nel sito e nell'APK come i fondali. Vale la stessa regola: tenerli piccoli quanto basta |
+| Lo sfondo tolto in automatico e' grezzo | Flood-fill dai bordi con una soglia: sugli sfondi piatti va, sulle foto vere non e' detto. La matita e' la scialuppa, ma su un ritaglio complesso e' lavoro manuale |
 | ~~Undo a snapshot dell'intero progetto~~ | **Caduto.** Lo snapshot resta l'intero progetto, ma i livelli fermi ci finiscono per riferimento: 0,02 ms con cento livelli, contro 5,14 |
 | Ciclo commit -> gioco live ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |
