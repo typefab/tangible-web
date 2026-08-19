@@ -1,7 +1,7 @@
 # Piano di lavoro — Tangible Cushion
 
 Documento di riferimento su scelte di architettura, stato e prossimi passi.
-Ultimo aggiornamento: 10 agosto 2026.
+Ultimo aggiornamento: 19 agosto 2026.
 
 ---
 
@@ -587,11 +587,14 @@ il ponte" e' un vincolo, non un dettaglio. Quindi:
 
 | | Dove vive | Fin quando |
 |---|---|---|
-| **Aggiungi al livello** | texture di sessione + voce di catalogo runtime | fino alla ricarica, e solo in quel browser |
+| **Aggiungi al livello** | texture di sessione + voce di catalogo runtime | solo in quel browser; sopravvive alla ricarica, entro il tetto di spazio |
 | **Scarica PNG** | il file da committare in `src/assets/blocks/<categoria>/` | per sempre, e per tutti |
 
 I blocchi runtime stanno in un elenco separato dai `BLOCKS` di build apposta:
-mescolarli avrebbe fatto sembrare permanente una cosa che non lo e'. Il pannello
+mescolarli avrebbe fatto sembrare permanente una cosa che non lo e'. Da quando
+viaggiano con l'autosave — vedi "Riprendere non deve costare del lavoro" — la
+distinzione conta ancora di piu': sopravvivono a una ricarica, quindi sembrano
+definitivi, ma esistono solo in quel browser. Il pannello
 scrive il percorso esatto in cui committare, perche' la differenza fra le due
 meta' non si vede guardando lo schermo — si vede solo dopo, quando qualcun altro
 apre il livello e trova un buco.
@@ -807,11 +810,12 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Catalogo dei livelli | `editor/LevelBrowser.ts` | elenco con ricerca; le schede sono solo gli aperti |
 | Fondali | `scenes/Backdrop.ts` | immagini dietro la scena, per livello; strumento 🖼 nell'editor |
 | Matita e lazo | `editor/MaskEditor.ts` | gomma, ripristino, lazo e pizzico; produce una maschera, non un'immagine |
+| Taglia e anteprima sulla cella | `editor/SpriteImporter.ts`, `assets/catalog.ts` | `albero@2.png` e' largo due celle; il rombo dell'anteprima viene da `projection.ts` |
 | Tasto indietro | `editor/BackGuard.ts` | chiude il pannello in cima, e chiede prima di lasciare la scheda |
 | Cassetto degli sprite | `editor/SpriteDrawer.ts` | catalogo per categoria e usati nel livello; in basso restano i recenti |
 | Editor d'immagine | `editor/SpriteImporter.ts` | togli sfondo, pixel-art, sprite di sessione + PNG da committare |
 | Ritaglio a mano | `editor/MaskEditor.ts` | gomma e ripristino sui pixel finali, con zoom e annulla per tratto |
-| Test | `test/`, `playwright.config.ts` | 96 test sul gioco che gira, in CI a ogni push |
+| Test | `test/`, `playwright.config.ts` | 114 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
@@ -1015,14 +1019,27 @@ src/assets/
   catalog.ts     <- l'elenco, generato da import.meta.glob
   blocks/        basic.png, stack.png…   -> cassetto e inventario, automatici
     <categoria>/ una sottocartella = una categoria del cassetto (facoltativa)
+    albero@2.png una taglia nel nome = largo due celle; l'id resta `albero`
   characters/    player.png
   ui/            joystick-border.png, joystick-thumb.png
+src/editor/
+  LevelEditor.ts    il grosso: barra, strumenti, schede, undo, salvataggio
+  SpriteDrawer.ts   il cassetto: catalogo per categoria e usati nel livello
+  SpriteImporter.ts da un'immagine a uno sprite: sfondo, taglia, anteprima
+  MaskEditor.ts     la matita: gomma, ripristino, lazo; produce una maschera
+  SelectionTool.ts  la selezione come area di celle
+  LevelBrowser.ts   il catalogo dei livelli, con ricerca
+  CameraGestures.ts pan e pinch a due dita
+  EditorStorage.ts  autosave e Salva, sprite di sessione compresi
+  BackGuard.ts      il tasto indietro: chiude un pannello, poi chiede
+  dialog.ts         la finestrella di scelta
 public/
   level.json     <- prodotto dall'editor
   assets/        <- archivio del progetto GDevelop, non usato dal codice
 ```
 
-Due regole: **la cartella decide la categoria, il nome del file decide l'id.**
+Tre regole: **la cartella decide la categoria, il nome del file decide l'id, e
+il suffisso `@n` decide la taglia** — senza entrare nell'id.
 
 Sono stati spostati solo i 5 sprite effettivamente usati. Gli altri 51 restano
 in `public/assets/`: sono varianti di joystick e prove mai entrate nel gioco, e
@@ -1036,34 +1053,46 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 
 ## 7. Prossimi passi
 
-1. ~~Ristrutturazione cartelle~~ — **fatta**
-2. ~~Pannello sprite con miniature + pennello~~ — **fatto**, la palette si genera
-   dal catalogo e scorre invece di crescere in altezza
-3. ~~Selezione e spostamento di aree~~ — **fatto**
-4. ~~Salvataggio locale e apertura di un file~~ — **fatto**
-5. ~~Pinch-zoom~~ — **fatto**, insieme al pan a due dita
-6. ~~Test automatici~~ — **fatto**, 39 test in CI
-7. ~~Copia e incolla della selezione~~ — **fatto**, anche fra schede
-8. ~~Produrre il primo APK~~ — **fatto**, 6,5 MB negli Artifacts. Resta da
-   **installarlo su un telefono vero**
-9. ~~Cassetto degli sprite per categoria~~ — **fatto**, col catalogo diviso per
-   cartella e i recenti nella striscia in basso
-10. ~~Fare uno sprite da un'immagine, dentro il browser~~ — **fatto**: togli
-    sfondo, pixel-art, ritaglio a mano, e l'ibrido sessione/commit
-11. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
+### Fatti
+
+1. ~~Ristrutturazione cartelle~~
+2. ~~Pannello sprite con miniature + pennello~~ — la palette si genera dal
+   catalogo invece di crescere in altezza
+3. ~~Selezione e spostamento di aree~~
+4. ~~Salvataggio locale e apertura di un file~~
+5. ~~Pinch-zoom~~ — insieme al pan a due dita
+6. ~~Test automatici~~ — oggi 114, in CI a ogni push
+7. ~~Copia e incolla della selezione~~ — anche fra schede
+8. ~~Produrre il primo APK~~ — 6,5 MB negli Artifacts, mai installato
+9. ~~Cassetto degli sprite per categoria~~ — catalogo diviso per cartella, e in
+   basso restano i recenti
+10. ~~Fare uno sprite da un'immagine, dentro il browser~~ — togli sfondo,
+    pixel-art, ritaglio a mano, ibrido sessione/commit
+11. ~~Contagocce per lo sfondo~~ — si indica il colore invece di dedurlo dagli
+    angoli, e il punto indicato fa da seme anche dentro la figura
+12. ~~Sprite di dimensioni diverse senza rifare il PNG~~ — la taglia sta nel
+    nome del file, con l'anteprima sulla cella per sceglierla
+
+### Da riprendere, in ordine
+
+13. **Scala del singolo blocco piazzato.** Un campo `scale` facoltativo in
+    `level.json` piu' i comandi nell'editor — scala del pennello, e
+    ingrandisci/rimpicciolisci la selezione. La taglia per tipo copre "quanto e'
+    grande un albero"; questa copre "quest'albero e' piu' piccolo". **E' il primo
+    lavoro da riprendere**, ed era gia' concordato come secondo passo.
+14. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
     selezione e dimensione dei pulsanti sono tarati su un viewport, non su una
-    mano. L'ingombro della barra, che era il lato misurabile senza avere il
-    telefono in mano, e' stato ridotto — vedi "Quanto schermo resta per costruire"
-12. **Percorrere il giro completo di uno sprite importato**: scarica, commit,
+    mano. Il ritaglio e' stato provato da Fabrizio e va; il pizzico dentro la
+    matita no.
+15. **Mettere un `timeout-minutes` a `test.yml`**, piu' una cache di
+    `~/.cache/ms-playwright`. Vedi l'episodio del 19 agosto: senza timeout un
+    download impiantato lascia il commit senza verdetto per sei ore.
+16. **Percorrere il giro completo di uno sprite importato**: scarica, commit,
     deploy, e ritrovarlo come blocco di build. E' l'unica prova che l'ibrido
-    chiude il cerchio
-13. ~~Contagocce per lo sfondo~~ — **fatto**: si indica il colore invece di
-    dedurlo dagli angoli, e il punto indicato fa da seme anche dentro la figura
-14. **Scala del singolo blocco piazzato**: un campo `scale` in `level.json` piu'
-    i comandi nell'editor, per avere lo stesso sprite in tre misure diverse
-    nella stessa scena. La taglia per tipo, gia' fatta, copre il caso "quanto e'
-    grande un albero"; questo copre "quest'albero e' piu' piccolo"
-15. Arte dei blocchi ridisegnata a rombo (vedi rischi)
+    chiude il cerchio.
+17. **Spezzare `LevelEditor.ts`**, sopra gli 85 KB. Cassetto, importer, matita e
+    sentinella sono nati fuori, ma il file non si e' ridotto.
+18. **Arte dei blocchi ridisegnata a rombo** (vedi rischi) — lavoro di grafica.
 
 ---
 
