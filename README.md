@@ -302,16 +302,24 @@ dentro la pagina, quindi funziona anche dal telefono:
 
 Poi due pulsanti, e **fanno due cose diverse**:
 
-| | Cosa fa | Quanto dura |
+| | Cosa fa | Dove vale |
 |---|---|---|
-| **Aggiungi al livello** | lo puoi piazzare subito | **fino alla ricarica**, e solo su questo browser |
+| **Aggiungi al livello** | lo puoi piazzare subito | **solo su questo browser**, ma resta anche dopo una ricarica |
 | **Scarica PNG** | ti da' il file da caricare su GitHub | per sempre, e per tutti |
 
 Per tenere davvero uno sprite devi **scaricarlo e committarlo** in
-`src/assets/blocks/<categoria>/`: il pannello ti scrive il percorso esatto. E'
-lo stesso motivo di sempre — l'editor gira su una pagina statica e non puo'
-scrivere nel repository. Finche' non fai commit, un livello che usa quello
-sprite mostra un buco a chiunque altro lo apra.
+`src/assets/blocks/<categoria>/`: il pannello ti scrive il percorso esatto, con
+il suffisso della taglia gia' dentro (`albero@2.png`). E' lo stesso motivo di
+sempre — l'editor gira su una pagina statica e non puo' scrivere nel repository.
+
+**Attento a non fidarti troppo**: da quando gli sprite sopravvivono alla
+ricarica sembrano definitivi, ma per chiunque altro — e nel gioco pubblicato —
+non esistono finche' non fai commit. E se un giorno superi lo spazio disponibile,
+la barra ti dice quali sprite non sono entrati nel salvataggio.
+
+Se riapri un lavoro e manca uno sprite, l'editor te lo dice e **non butta via i
+blocchi** che lo usavano: restano nel livello, invisibili, e ricompaiono da soli
+appena committi il PNG.
 
 ## Cosa tocco io
 
@@ -356,6 +364,9 @@ sprite mostra un buco a chiunque altro lo apra.
 - **Contagocce**: tieni premuto un blocco e il suo tipo torna in mano
 - **Fondali**: immagini dietro la scena, una per livello o quante ne vuoi,
   spostabili e ridimensionabili
+- **Sprite di dimensioni diverse con un PNG solo**: la taglia sta nel nome del
+  file (`albero@2.png` e' largo due celle) e non nell'id, quindi cambiarla non
+  invalida i livelli gia' scritti
 - **Il tasto indietro non chiude la scheda per sbaglio**: prima chiude il
   pannello aperto, poi chiede conferma — e se hai lavoro non salvato te lo dice
 - **Barra pensata per il telefono**: i comandi rari stanno dietro **⋯**, e alla
