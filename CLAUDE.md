@@ -74,12 +74,15 @@ conversazione, non una modifica.
   sottocartella. E' quello che permette di cambiare idea sulla taglia senza
   invalidare i `level.json` che nominano quel blocco. Un `@` senza un numero
   buono dopo resta nell'id, cosi' un file chiamato davvero cosi' non sparisce.
-- **Uno sprite fatto nell'editor d'immagine vive solo in quella sessione.**
-  `registerRuntimeBlock()` lo rende piazzabile subito, ma resta un elenco
-  separato dai `BLOCKS` di build apposta: non e' nel repository, sparisce alla
-  ricarica, e un `level.json` che lo nomina mostra un buco a chiunque altro
-  finche' il PNG non viene committato. L'interfaccia lo deve dire — la
-  differenza non si vede.
+- **Uno sprite fatto nell'editor d'immagine non e' nel repository.**
+  `registerRuntimeBlock()` lo rende piazzabile subito e l'autosave lo conserva
+  in questo browser, ma resta un elenco separato dai `BLOCKS` di build apposta:
+  su un altro browser, e nel gioco pubblicato, non esiste finche' il PNG non
+  viene committato. L'interfaccia lo deve dire — la differenza non si vede.
+- **Un blocco che non si sa disegnare non si butta.** `GridPlacement` tiene da
+  parte gli id che il catalogo non conosce e li riscrive nel salvataggio: il
+  salvataggio si rilegge dalla scena, quindi senza questo un PNG cancellato dal
+  repository cancellerebbe **per sempre** i blocchi che lo usavano, in silenzio.
 - **Il tasto indietro chiude, non esce.** `BackGuard` tiene una voce di
   cronologia come sentinella: il primo indietro chiude il pannello piu' in alto,
   e solo con niente aperto chiede se chiudere la scheda. Chi aggiunge un
