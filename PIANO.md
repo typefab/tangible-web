@@ -489,8 +489,22 @@ e la tolleranza dice quanto ci si puo' allontanare. Niente modelli da scaricare:
 sarebbero megabyte e una dipendenza esterna, per un problema che su sfondi
 piatti si risolve cosi'.
 
-Restano due casi che l'automatico non puo' indovinare — un angolo occupato dalla
-figura, e i buchi di sfondo dentro la sagoma — piu' i bordi complessi. Per
+L'automatico pero' sbaglia in un modo preciso: se la figura occupa un angolo,
+quel colore entra fra i riferimenti e il ritaglio mangia proprio cio' che si
+voleva tenere. Da qui il **contagocce**: si tocca l'anteprima nel punto in cui
+c'e' lo sfondo, e quel colore diventa l'unico riferimento. Il punto indicato fa
+anche da seme, oltre ai bordi, quindi cade pure una zona di sfondo chiusa dentro
+la figura — il buco nel manico della tazza — che partendo dai soli bordi non si
+raggiunge.
+
+Due dettagli che decidono se funziona. Il colore si campiona sulla **sorgente**,
+non sullo sprite gia' ridotto: dopo un ritaglio sbagliato quel punto e' spesso
+gia' trasparente, e si prenderebbe il nulla. E il punto si tiene in coordinate
+della sorgente, cosi' cambiare il lato in pixel non lo sposta. Finche' il
+contagocce e' armato l'anteprima mostra i colori veri, senza ritaglio: su uno
+sfondo tolto male non ci sarebbe piu' niente da indicare.
+
+Restano i bordi complessi, che nessun riferimento di colore puo' indovinare. Per
 quelli c'e' `editor/MaskEditor.ts`, la matita: gomma, ripristino, pennello,
 zoom, annulla per tratto. Lavora sui **pixel finali** e non sull'immagine ad alta
 risoluzione: un ritaglio fatto prima della riduzione verrebbe ricampionato, e il
@@ -721,6 +735,10 @@ Test principali superati:
   compare "Vuoi chiudere la scheda?" e **"Resta qui" tiene la pagina**; la
   domanda torna anche al secondo indietro, cioe' la sentinella si rimette; con
   una pennellata non salvata la domanda lo dice
+- contagocce dello sfondo, sui due casi messi uno accanto all'altro: con la
+  figura appoggiata a un angolo l'automatico **la mangia** — il pixel della
+  figura esce trasparente — mentre indicando lo sfondo col contagocce la figura
+  resta rossa e opaca e il bianco attorno se ne va
 - ritaglio a mano: una gommata al centro della griglia arriva **fino alla texture
   finale**, che li' torna trasparente; le frecce del lato in pixel muovono il
   valore di un passo in su e in giu'
@@ -838,10 +856,10 @@ Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
   e' la stessa cosa di un dito.
 - **L'APK non e' mai stato installato**: e' stato prodotto, non provato.
 - **Il flood-fill non e' mai stato provato su una foto vera.** I test lo
-  inchiodano su un'immagine sintetica — sfondo pieno, figura netta — che e' il
-  caso in cui non puo' sbagliare. Su uno sfondo sfumato, rumoroso, o con la
-  figura che tocca il bordo puo' mangiare troppo o troppo poco, e la tolleranza
-  potrebbe non bastare a rimediare.
+  inchiodano su immagini sintetiche — sfondo pieno, figura netta — cioe' il caso
+  in cui non puo' sbagliare. Su uno sfondo sfumato o rumoroso puo' mangiare
+  troppo o troppo poco; il contagocce sposta il riferimento ma non rende
+  uniforme uno sfondo che non lo e'.
 - **L'ergonomia della matita su un telefono vero.** Pennello, zoom a frecce e
   pan con le dita su uno sprite grande sono stati provati col mouse: potrebbe
   servire un pinch-to-zoom vero, come ce l'ha gia' la scena.
@@ -917,9 +935,8 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 12. **Percorrere il giro completo di uno sprite importato**: scarica, commit,
     deploy, e ritrovarlo come blocco di build. E' l'unica prova che l'ibrido
     chiude il cerchio
-13. **Contagocce per lo sfondo** nell'editor d'immagine: indicare col dito il
-    colore da togliere invece di dedurlo dai quattro angoli. E' il rimedio al
-    caso "l'angolo e' occupato dalla figura", che oggi non ha rimedio
+13. ~~Contagocce per lo sfondo~~ — **fatto**: si indica il colore invece di
+    dedurlo dagli angoli, e il punto indicato fa da seme anche dentro la figura
 14. Arte dei blocchi ridisegnata a rombo (vedi rischi)
 
 ---
@@ -939,6 +956,6 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
 | **Uno sprite di sessione sembra permanente** | Si piazza come gli altri e sta nel cassetto come gli altri, ma vive finche' non si ricarica. Un livello salvato che lo nomina mostra un buco a chiunque altro. Il pannello dice dove committarlo, ma e' un avviso da leggere contro un'interfaccia che non lo mostra |
 | **Sprite grandi e peso del PNG** | Il lato in pixel arriva a 512. Uno sprite a quella risoluzione non pesa piu' come i 300 byte di `basic.png`, e finisce nel sito e nell'APK come i fondali. Vale la stessa regola: tenerli piccoli quanto basta |
-| Lo sfondo tolto in automatico e' grezzo | Flood-fill dai bordi con una soglia: sugli sfondi piatti va, sulle foto vere non e' detto. La matita e' la scialuppa, ma su un ritaglio complesso e' lavoro manuale |
+| Lo sfondo tolto in automatico e' grezzo | Flood-fill con una soglia: sugli sfondi piatti va, sulle foto vere non e' detto. Il contagocce sposta il riferimento e la matita e' la scialuppa, ma su un ritaglio complesso resta lavoro manuale |
 | ~~Undo a snapshot dell'intero progetto~~ | **Caduto.** Lo snapshot resta l'intero progetto, ma i livelli fermi ci finiscono per riferimento: 0,02 ms con cento livelli, contro 5,14 |
 | Ciclo commit -> gioco live ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |
