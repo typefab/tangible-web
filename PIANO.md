@@ -631,6 +631,41 @@ momento esce davvero. E' una scelta — rimetterla li' avrebbe reso l'uscita un
 salto all'indietro che il browser rifiuta quando davanti non ha niente, cioe'
 un "Chiudi" che non chiude. L'autosave su `beforeunload` resta la rete sotto.
 
+### Riprendere non deve costare del lavoro
+
+Provando davvero il giro completo e' saltato fuori il difetto peggiore di tutta
+la sessione. Importi uno sprite, ci costruisci, ricarichi, scegli "Riprendi": lo
+sprite non c'e' piu' — ed era voluto — ma **spariscono anche i blocchi piazzati
+con lui**, e il primo autosave li cancella per sempre.
+
+La catena e' corta e vale la pena scriverla, perche' non e' evidente:
+`loadLayers` chiede a `spawn` di disegnare ogni blocco; un id sconosciuto non
+produce nessuno sprite; `serializeLayers` si rilegge **dalla scena**; quindi al
+salvataggio successivo quei blocchi non esistono piu'. Nessun messaggio, nessun
+modo di accorgersene.
+
+Il corollario riguarda anche il repository, e non solo gli sprite di sessione:
+**cancellare un PNG da `src/assets/blocks/` cancellava i blocchi** di ogni
+livello che lo usava, alla prima riapertura.
+
+Due rimedi, che rispondono a due domande diverse.
+
+**Un blocco che non si sa disegnare non si butta.** `GridPlacement` tiene gli id
+sconosciuti in un elenco a parte e li riscrive nel salvataggio: invisibili ma
+vivi. Committato il PNG, ricompaiono da soli. Costruirci sopra o passarci la
+gomma li toglie, perche' li' l'intenzione e' chiara.
+
+**Gli sprite di sessione viaggiano con l'autosave.** E' un cambio dichiarato
+dell'invariante "vive solo in quella sessione": ora sopravvive alla ricarica *in
+questo browser*, mentre resta vero — e va detto — che per chiunque altro non
+esiste finche' il PNG non e' committato.
+
+Il prezzo e' quello previsto dal primo giorno: un PNG in base64 pesa un centinaio
+di KB, e il `localStorage` sta in ~5 MB **per tutta l'origine**. Da qui il tetto:
+gli sprite entrano finche' ci stanno, e quelli che restano fuori vengono detti
+per nome nella barra. La cosa che non si puo' perdere e' il progetto, quindi e'
+lui ad avere la precedenza sullo spazio.
+
 ### Cento livelli: catalogo e schede sono due cose diverse
 
 Le schede elencavano **tutti** i livelli. Con due va bene; con venti la striscia
@@ -800,6 +835,10 @@ Test principali superati:
   come file diventa uno sprite **piazzabile subito** — texture registrata, voce
   nel cassetto, blocco che si posa sulla griglia; togliendo lo sfondo gli angoli
   restano a `alpha` 0 e la figura al centro resta opaca e del suo colore
+- ripresa del lavoro, col giro vero — importa, costruisci, ricarica, "Riprendi":
+  lo sprite importato **e i suoi blocchi** ci sono ancora, e non compare nessun
+  avviso; e un livello che nomina uno sprite inesistente, riletto e riscritto,
+  **conserva quel blocco** invece di perderlo
 - tasto indietro, con l'indietro vero del browser: col cassetto aperto lo chiude
   e non chiede niente; lo stesso col catalogo dei livelli; senza niente aperto
   compare "Vuoi chiudere la scheda?" e **"Resta qui" tiene la pagina**; la
@@ -1042,7 +1081,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | **`localStorage` sta in ~5 MB** | Un progetto da cento livelli pieni ci arriva (~2 MB, ma cresce). Ora Salva lo dice invece di fingere, e resta Scarica; la soluzione vera e' IndexedDB |
 | **Uno sprite grande copre celle che non occupa** | La profondita' resta `col + row` della sua unica cella: un albero largo due puo' finire davanti a qualcosa che dovrebbe stargli davanti. E' come funziona l'isometrica, non un difetto da correggere — ma si vede, e con l'arte a rombi ancora in sospeso conviene saperlo |
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
-| **Uno sprite di sessione sembra permanente** | Si piazza come gli altri e sta nel cassetto come gli altri, ma vive finche' non si ricarica. Un livello salvato che lo nomina mostra un buco a chiunque altro. Il pannello dice dove committarlo, ma e' un avviso da leggere contro un'interfaccia che non lo mostra |
+| **Uno sprite di sessione sembra permanente** | Ora sopravvive alla ricarica in questo browser, il che lo fa sembrare ancora piu' definitivo di prima: per chiunque altro, e nel gioco pubblicato, non esiste finche' il PNG non e' committato. Il pannello dice dove metterlo, ma resta un avviso da leggere contro un'interfaccia che non lo mostra |
 | **Sprite grandi e peso del PNG** | Il lato in pixel arriva a 1024 e la sorgente di lavoro a 2048. Uno sprite a quella risoluzione non pesa piu' come i 300 byte di `basic.png`, e finisce nel sito e nell'APK come i fondali. Vale la stessa regola: tenerli piccoli quanto basta |
 | Lo sfondo tolto in automatico e' grezzo | Flood-fill con una soglia: sugli sfondi piatti va, sulle foto vere non e' detto. Il contagocce sposta il riferimento e la matita e' la scialuppa, ma su un ritaglio complesso resta lavoro manuale |
 | ~~Undo a snapshot dell'intero progetto~~ | **Caduto.** Lo snapshot resta l'intero progetto, ma i livelli fermi ci finiscono per riferimento: 0,02 ms con cento livelli, contro 5,14 |

@@ -231,6 +231,11 @@ export function registerRuntimeBlock(def: AssetDef): AssetDef {
   return def;
 }
 
+/** Gli sprite di sessione, per poterli salvare e rimettere a una ricarica. */
+export function sessionBlocks(): readonly AssetDef[] {
+  return runtimeBlocks;
+}
+
 /** True se l'id e' un blocco di sessione e non un file del repository. */
 export function isRuntimeBlock(id: string): boolean {
   return runtimeBlocks.some((b) => b.id === id);

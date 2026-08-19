@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { ISO, TIMING, LAYERS, type BlockType } from '../config';
 import { canonicalBlockId, DEFAULT_BLOCK_ID, resolveBlock } from '../assets/catalog';
 import { projection } from '../grid/projection';
-import { emptyLayer, type SerializedLayer } from '../level/project';
+import { emptyLayer, type SerializedBlock, type SerializedLayer } from '../level/project';
 
 /**
  * Un piano di costruzione, come un layer di GDevelop.
@@ -183,6 +183,18 @@ export class GridPlacement {
    * Si usa l'id del layer e non il suo indice proprio perche' l'indice cambia
    * quando si riordina o si cancella.
    */
+  /**
+   * I blocchi che non si e' riusciti a disegnare, tenuti da parte invece che
+   * buttati via.
+   *
+   * Succede quando un `level.json` nomina uno sprite che il catalogo non ha:
+   * un PNG cancellato dal repository, o uno sprite di sessione svanito con la
+   * ricarica. Prima quei blocchi sparivano e basta — e il primo autosave li
+   * cancellava **per sempre**, perche' il salvataggio si rilegge dalla scena.
+   * Ora restano qui, invisibili ma vivi: committato il PNG, ricompaiono.
+   */
+  private orphans = new Map<string, SerializedBlock>();
+
   private static key(layerId: string, col: number, row: number): string {
     return `${layerId}#${col},${row}`;
   }
@@ -336,7 +348,10 @@ export class GridPlacement {
     sprite.setData('type', texture);
     sprite.setVisible(layer.visible);
 
-    this.blocks.set(GridPlacement.key(layer.id, col, row), sprite);
+    const key = GridPlacement.key(layer.id, col, row);
+    // Chi costruisce sopra un buco ha deciso di sostituirlo: l'orfano se ne va.
+    this.orphans.delete(key);
+    this.blocks.set(key, sprite);
     return true;
   }
 
@@ -374,10 +389,20 @@ export class GridPlacement {
     if (!layer) return false;
 
     const key = GridPlacement.key(layer.id, col, row);
-    if (!this.blocks.has(key)) return false;
+    if (!this.blocks.has(key)) {
+      // Anche un orfano si cancella: e' nel livello, e chi passa la gomma su
+      // quella cella si aspetta che dopo sia vuota davvero.
+      return this.orphans.delete(key);
+    }
 
     this.destroyAt(key);
+    this.orphans.delete(key);
     return true;
+  }
+
+  /** Gli id che il catalogo non conosce e che il livello sta tenendo da parte. */
+  orphanTypes(): string[] {
+    return [...new Set([...this.orphans.values()].map((b) => b.type))];
   }
 
   /**
@@ -390,6 +415,7 @@ export class GridPlacement {
     this.cancelBreak();
     for (const sprite of this.blocks.values()) sprite.destroy();
     this.blocks.clear();
+    this.orphans.clear();
     this.layerList = [];
     this.activeIndex = 0;
     this.addLayer('Terreno', 0);
@@ -470,6 +496,11 @@ export class GridPlacement {
       byLayer.get(layerId)?.push({ col, row, type: sprite.getData('type') as BlockType });
     }
 
+    // E i blocchi che non si sapeva disegnare: sono la ragione per cui esistono.
+    for (const [key, block] of this.orphans) {
+      byLayer.get(GridPlacement.parseKey(key).layerId)?.push({ ...block });
+    }
+
     return this.layerList.map((layer) => ({
       name: layer.name,
       elevation: layer.elevation,
@@ -489,7 +520,15 @@ export class GridPlacement {
     for (const layer of layers.slice(0, LAYERS.max)) {
       const index = this.addLayer(layer.name, layer.elevation);
       this.layerList[index]!.visible = layer.visible;
-      for (const b of layer.blocks) this.spawn(b.col, b.row, b.type, index);
+      for (const b of layer.blocks) {
+        // Il controllo sta qui e non dentro `spawn`: li' un `false` vuol dire
+        // anche "cella occupata", e un doppione nel file non e' un orfano.
+        if (!resolveBlock(b.type)) {
+          this.orphans.set(GridPlacement.key(this.layerList[index]!.id, b.col, b.row), b);
+          continue;
+        }
+        this.spawn(b.col, b.row, b.type, index);
+      }
     }
 
     // Un elenco vuoto lascerebbe la scena senza piani su cui costruire.

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GRID, LAYERS, type BlockType } from '../config';
-import { BACKGROUNDS, registerRuntimeBlock, resolveBlock } from '../assets/catalog';
+import { BACKGROUNDS, registerRuntimeBlock, resolveBlock, sessionBlocks } from '../assets/catalog';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import {
   emptyLevel,
@@ -10,7 +10,7 @@ import {
 } from '../level/project';
 import { CameraGestures, ZOOM_STEP } from './CameraGestures';
 import { SelectionTool, type Picked } from './SelectionTool';
-import { EditorStorage, describeWhen } from './EditorStorage';
+import { EditorStorage, describeWhen, type StoredSprite } from './EditorStorage';
 import { chooseDialog } from './dialog';
 import { LevelBrowser, type BrowserLevel } from './LevelBrowser';
 import { SpriteDrawer } from './SpriteDrawer';
@@ -126,6 +126,19 @@ const PICK_MS = 500;
 const PICK_SLOP = 8;
 
 /** Copia profonda. Gli snapshot non devono condividere niente con lo stato vivo. */
+/**
+ * Un data URI in un'immagine decodificata, per rimettere in Phaser una texture
+ * salvata nel browser: `addImage` vuole un elemento gia' pronto, non un URL.
+ */
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('sprite illeggibile'));
+    img.src = url;
+  });
+}
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -160,6 +173,15 @@ export class LevelEditor {
    */
   private recentBlocks: BlockType[] = [];
   private static readonly RECENT_MAX = 16;
+
+  /**
+   * Quanto spazio possono prendersi gli sprite di sessione nel salvataggio.
+   * Una frazione dei ~5 MB del `localStorage`: il resto serve al progetto, che
+   * e' la cosa che non si puo' proprio perdere.
+   */
+  private static readonly SPRITE_BUDGET = 1_500_000;
+  /** Gli sprite che non sono entrati nel salvataggio, per poterlo dire. */
+  private spritesLeftOut: string[] = [];
   private toolButtons = new Map<Tool, HTMLButtonElement>();
   private undoButton!: HTMLButtonElement;
   private redoButton!: HTMLButtonElement;
@@ -754,9 +776,14 @@ export class LevelEditor {
     );
 
     if (choice === 'resume') {
+      // Prima gli sprite, poi il livello: `adopt` monta la scena, e un blocco
+      // il cui sprite non c'e' ancora finirebbe fra gli orfani per niente.
+      await this.restoreSprites(stored.sprites ?? []);
       this.adopt(stored.project, stored.activeLevel, stored.open);
       this.dirty = stored.dirty;
       this.lastSavedAt = stored.dirty ? null : stored.savedAt;
+      this.refresh();
+      await this.warnMissingSprites();
     } else {
       this.storage.clear();
       this.adopt(published, 0);
@@ -771,8 +798,84 @@ export class LevelEditor {
       dirty,
       activeLevel: this.activeLevelIndex,
       open: this.openLevels.slice(),
+      sprites: this.spritesToStore(),
       project: this.project(),
     };
+  }
+
+  /**
+   * Gli sprite di sessione da mettere nel salvataggio, fin dove ci stanno.
+   *
+   * Il tetto non e' pignoleria: il `localStorage` sta in ~5 MB **per tutto il
+   * sito**, e un PNG in base64 pesa un centinaio di KB. Senza, bastano una
+   * dozzina di sprite perche' la scrittura fallisca — e a fallire non sarebbe
+   * solo lo sprite, ma il salvataggio del livello insieme a lui.
+   *
+   * Quelli che non entrano vengono detti per nome, non lasciati sparire.
+   */
+  private spritesToStore(): StoredSprite[] {
+    const kept: StoredSprite[] = [];
+    const leftOut: string[] = [];
+    let used = 0;
+
+    for (const block of sessionBlocks()) {
+      const entry: StoredSprite = {
+        id: block.id,
+        label: block.label,
+        category: block.category,
+        scale: block.scale,
+        dataUrl: block.url,
+      };
+      const size = entry.dataUrl.length;
+      if (used + size > LevelEditor.SPRITE_BUDGET) {
+        leftOut.push(block.id);
+        continue;
+      }
+      used += size;
+      kept.push(entry);
+    }
+
+    this.spritesLeftOut = leftOut;
+    return kept;
+  }
+
+  /** Ripristina le texture degli sprite di sessione salvati col lavoro. */
+  private async restoreSprites(sprites: readonly StoredSprite[]): Promise<void> {
+    for (const s of sprites) {
+      try {
+        const img = await loadImage(s.dataUrl);
+        if (this.scene.textures.exists(s.id)) this.scene.textures.remove(s.id);
+        this.scene.textures.addImage(s.id, img);
+        registerRuntimeBlock({
+          id: s.id,
+          label: s.label,
+          url: s.dataUrl,
+          category: s.category,
+          scale: s.scale,
+        });
+      } catch {
+        // Uno sprite illeggibile non deve impedire di riprendere tutto il resto:
+        // i suoi blocchi restano da parte come orfani, e si vede che manca.
+      }
+    }
+  }
+
+  /**
+   * Dice quali sprite mancano, invece di lasciarli scoprire dai buchi.
+   *
+   * E' il momento in cui serve saperlo: all'importazione l'avviso c'era, ma un
+   * ripristino avviene ore dopo, magari su un altro giorno.
+   */
+  private async warnMissingSprites(): Promise<void> {
+    const missing = this.placement.orphanTypes();
+    if (missing.length === 0) return;
+
+    await chooseDialog(
+      'Mancano degli sprite',
+      `${missing.join(', ')} — i blocchi che li usano sono ancora nel livello ma non si vedono. ` +
+        'Committa i PNG in src/assets/blocks/ e torneranno da soli.',
+      [{ id: 'ok', label: 'Ho capito' }],
+    );
   }
 
   /** Salva esplicito: da qui in poi questo e' lo stato buono. */
@@ -2230,7 +2333,13 @@ export class LevelEditor {
       ? 'Altri comandi — lavoro non salvato'
       : 'Altri comandi: griglia, salva, apri, scarica';
 
-    if (this.saveFailed) {
+    if (this.spritesLeftOut.length > 0) {
+      // Sta accanto agli altri avvisi di salvataggio perche' e' lo stesso
+      // problema: da qui in poi quegli sprite esistono solo finche' la scheda
+      // resta aperta, e l'unico modo di tenerli e' committare il PNG.
+      this.statusLabel.textContent = `⚠ ${this.spritesLeftOut.length} sprite non salvati: committa i PNG`;
+      this.statusLabel.classList.add('dirty');
+    } else if (this.saveFailed) {
       // Non e' un dettaglio da nascondere in un angolo: da qui in poi l'unico
       // posto sicuro dove mettere il lavoro e' il file scaricato.
       this.statusLabel.textContent = '⚠ memoria piena: usa Scarica';

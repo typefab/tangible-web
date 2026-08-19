@@ -30,7 +30,29 @@ export interface StoredWork {
    * riparte con la sola scheda attiva.
    */
   open?: number[];
+  /**
+   * Gli sprite fatti nell'editor d'immagine, come data URI.
+   *
+   * Senza, riprendere il lavoro rimetteva il livello ma non gli sprite: i
+   * blocchi piazzati con quelli mostravano un buco. Costano spazio — un PNG in
+   * base64 pesa un centinaio di KB — ed e' il motivo del tetto in `LevelEditor`:
+   * il `localStorage` sta in ~5 MB **per tutto il sito**, non per record.
+   *
+   * Restano comunque solo in questo browser: il PNG committato e' l'unica cosa
+   * che li rende veri per chiunque altro.
+   */
+  sprites?: StoredSprite[];
   project: SerializedProject;
+}
+
+/** Uno sprite di sessione conservato nel browser. */
+export interface StoredSprite {
+  id: string;
+  label: string;
+  category?: string;
+  /** Quante celle e' largo: la stessa taglia che il nome del file porterebbe. */
+  scale?: number;
+  dataUrl: string;
 }
 
 /** La `v1` c'e' perche' un cambio di formato non deve leggere dati vecchi. */
