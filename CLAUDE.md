@@ -74,6 +74,12 @@ conversazione, non una modifica.
   sottocartella. E' quello che permette di cambiare idea sulla taglia senza
   invalidare i `level.json` che nominano quel blocco. Un `@` senza un numero
   buono dopo resta nell'id, cosi' un file chiamato davvero cosi' non sparisce.
+- **La scala di un blocco moltiplica la taglia del suo tipo, non la sostituisce.**
+  `"scale": 0.5` vuol dire "meta' di un albero", non "mezza cella": e' quello che
+  permette di ripensare `albero@2.png` senza rimisurare i blocchi gia' piazzati.
+  Il campo **non compare quando vale 1**, come `rotation` sui fondali, e viaggia
+  col blocco — spostamento, appunti, contagocce: una proprieta' che si perde
+  toccando le cose e' peggio che non averla.
 - **Uno sprite fatto nell'editor d'immagine non e' nel repository.**
   `registerRuntimeBlock()` lo rende piazzabile subito e l'autosave lo conserva
   in questo browser, ma resta un elenco separato dai `BLOCKS` di build apposta:
@@ -164,7 +170,10 @@ compositing GPU della cattura. Ci abbiamo perso tempo una volta.
 ## GitHub
 
 - **`test.yml`** gira a ogni push e PR. **Non blocca il deploy**, di proposito:
-  pubblicare una scena nuova deve restare un'operazione da un minuto.
+  pubblicare una scena nuova deve restare un'operazione da un minuto. Ha un
+  tetto di 15 minuti sul job e 5 sul passo che scarica il browser: senza, una
+  run impiantata lascia il commit senza verdetto per sei ore, ed e' gia'
+  successo. Il browser sta in cache, con la chiave sulla versione di Playwright.
 - **`deploy-web.yml`** pubblica su Pages a ogni push su `main`.
 - **`build-apk.yml`** e' manuale.
 - Le action stanno alle major correnti: i runner hanno dismesso Node 20.

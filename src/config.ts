@@ -32,6 +32,28 @@ export const ISO = {
   originY: 48,
 } as const;
 
+/**
+ * Quanto puo' essere grande un singolo blocco piazzato, **rispetto alla taglia
+ * del suo tipo**.
+ *
+ * Sono due leve diverse e non si sovrappongono: il nome del file dice quanto e'
+ * grande *un albero* (`albero@2.png`), questa dice che *quest'albero* e' piu'
+ * piccolo. Ed e' un moltiplicatore proprio per questo: ripensare la taglia del
+ * tipo non deve invalidare i blocchi gia' piazzati, che restano "meta' di un
+ * albero" qualunque cosa voglia dire domani.
+ *
+ * I gradini invece di un fattore continuo: si legge "1.5x" e non "1.5625x", e
+ * tornare esattamente a 1 e' sempre possibile. Il primo e l'ultimo sono anche
+ * gli estremi accettati da `level.json`.
+ */
+export const BLOCK_SCALE = {
+  steps: [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4],
+  min: 0.25,
+  max: 4,
+  /** La taglia normale: un blocco senza `scale` nel file vale questo. */
+  normal: 1,
+} as const;
+
 export const TIMING = {
   /** Secondi di pressione continua per rompere un blocco. */
   breakTimeMs: 1500,

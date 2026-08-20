@@ -1,8 +1,13 @@
 import Phaser from 'phaser';
-import { ISO, TIMING, LAYERS, type BlockType } from '../config';
+import { BLOCK_SCALE, ISO, TIMING, LAYERS, type BlockType } from '../config';
 import { canonicalBlockId, DEFAULT_BLOCK_ID, resolveBlock } from '../assets/catalog';
 import { projection } from '../grid/projection';
-import { emptyLayer, type SerializedBlock, type SerializedLayer } from '../level/project';
+import {
+  clampBlockScale,
+  emptyLayer,
+  type SerializedBlock,
+  type SerializedLayer,
+} from '../level/project';
 
 /**
  * Un piano di costruzione, come un layer di GDevelop.
@@ -57,6 +62,12 @@ export class GridPlacement {
 
   /** Tipo di blocco attualmente selezionato (lo slot di inventario). */
   selected: BlockType = DEFAULT_BLOCK_ID;
+
+  /**
+   * Quanto grande piazzarlo, rispetto alla taglia del suo tipo. E' la taglia
+   * "in mano": in gioco resta 1 e nessuno la tocca, nell'editor e' il pennello.
+   */
+  selectedScale: number = BLOCK_SCALE.normal;
 
   /** Chiamato quando un blocco viene rotto: serve a restituirlo all'inventario. */
   onBlockBroken?: (type: BlockType) => void;
@@ -233,6 +244,12 @@ export class GridPlacement {
     return this.blockAt(col, row, layerIndex)?.getData('type') as BlockType | undefined;
   }
 
+  /** Quanto e' grande il blocco nella cella, rispetto alla taglia del suo tipo. */
+  scaleAt(col: number, row: number, layerIndex = this.activeIndex): number | undefined {
+    const sprite = this.blockAt(col, row, layerIndex);
+    return sprite ? ((sprite.getData('scale') as number | undefined) ?? BLOCK_SCALE.normal) : undefined;
+  }
+
   /**
    * Il blocco piu' in alto sulla cella, ignorando i layer spenti.
    *
@@ -309,10 +326,11 @@ export class GridPlacement {
     row: number,
     type: BlockType = this.selected,
     layerIndex = this.activeIndex,
+    scale = this.selectedScale,
   ): boolean {
     const now = this.scene.time.now;
     if (now - this.lastPlacementAt < TIMING.placementCooldownMs) return false;
-    if (!this.spawn(col, row, type, layerIndex)) return false;
+    if (!this.spawn(col, row, type, layerIndex, scale)) return false;
 
     this.lastPlacementAt = now;
     return true;
@@ -327,6 +345,7 @@ export class GridPlacement {
     row: number,
     type: BlockType = this.selected,
     layerIndex = this.activeIndex,
+    scale = this.selectedScale,
   ): boolean {
     const layer = this.layerAt(layerIndex);
     if (!layer || this.isOccupied(col, row, layerIndex)) return false;
@@ -336,22 +355,61 @@ export class GridPlacement {
     const texture = canonicalBlockId(type);
     if (!texture) return false;
 
+    const size = clampBlockScale(scale);
     const { x, y } = GridPlacement.cellToWorld(col, row);
     const sprite = this.scene.add.sprite(x, y + projection.elevationOffsetY(layer.elevation), texture);
-    // Largo quanto il rombo per la taglia dello sprite, altezza in proporzione:
-    // gli sprite dei blocchi sono piu' alti della cella perche' mostrano anche
-    // la faccia frontale. La taglia viene dal nome del file (`albero@2.png`) e
-    // vale 1 per tutti gli altri, quindi i blocchi di sempre non si muovono.
-    const width = ISO.tileWidth * (resolveBlock(type)?.scale ?? 1);
-    sprite.setDisplaySize(width, sprite.height * (width / sprite.width));
+    GridPlacement.resize(sprite, type, size);
     sprite.setDepth(GridPlacement.depthOf(col, row, layerIndex));
     sprite.setData('type', texture);
+    sprite.setData('scale', size);
     sprite.setVisible(layer.visible);
 
     const key = GridPlacement.key(layer.id, col, row);
     // Chi costruisce sopra un buco ha deciso di sostituirlo: l'orfano se ne va.
     this.orphans.delete(key);
     this.blocks.set(key, sprite);
+    return true;
+  }
+
+  /**
+   * Porta lo sprite alla sua larghezza sulla griglia.
+   *
+   * Due fattori, e sono due leve diverse: la **taglia del tipo** viene dal nome
+   * del file (`albero@2.png`) e dice quanto e' grande un albero; la **scala del
+   * blocco** dice che quest'albero e' meta' degli altri. L'altezza segue in
+   * proporzione, perche' gli sprite dei blocchi sono piu' alti della cella —
+   * mostrano anche la faccia frontale.
+   *
+   * Si cresce attorno al centro della cella, che e' dove lo sprite e' ancorato:
+   * l'appoggio sta gia' dentro al PNG come spazio trasparente, quindi si
+   * ingrandisce con lui invece di scollarsi dal rombo.
+   */
+  private static resize(
+    sprite: Phaser.GameObjects.Sprite,
+    type: BlockType,
+    scale: number,
+  ): void {
+    const width = ISO.tileWidth * (resolveBlock(type)?.scale ?? 1) * scale;
+    // Le dimensioni della texture, non quelle a schermo: `displayWidth` di uno
+    // sprite gia' ridimensionato darebbe un rimpicciolimento composto.
+    sprite.setDisplaySize(width, sprite.height * (width / sprite.width));
+  }
+
+  /**
+   * Cambia quanto e' grande un blocco gia' piazzato, senza rifarlo.
+   *
+   * @returns false se la cella e' vuota o se era gia' di quella misura, cosi'
+   * chi chiama sa se e' successo qualcosa da mettere nella cronologia.
+   */
+  rescale(col: number, row: number, layerIndex: number, scale: number): boolean {
+    const sprite = this.blockAt(col, row, layerIndex);
+    if (!sprite) return false;
+
+    const size = clampBlockScale(scale);
+    if (size === sprite.getData('scale')) return false;
+
+    GridPlacement.resize(sprite, sprite.getData('type') as BlockType, size);
+    sprite.setData('scale', size);
     return true;
   }
 
@@ -493,7 +551,12 @@ export class GridPlacement {
 
     for (const [key, sprite] of this.blocks) {
       const { layerId, col, row } = GridPlacement.parseKey(key);
-      byLayer.get(layerId)?.push({ col, row, type: sprite.getData('type') as BlockType });
+      const block: SerializedBlock = { col, row, type: sprite.getData('type') as BlockType };
+      // Il campo resta assente alla taglia normale: un file fatto prima che la
+      // scala esistesse, riaperto e riscritto, non deve cambiare di una riga.
+      const scale = (sprite.getData('scale') as number | undefined) ?? BLOCK_SCALE.normal;
+      if (scale !== BLOCK_SCALE.normal) block.scale = scale;
+      byLayer.get(layerId)?.push(block);
     }
 
     // E i blocchi che non si sapeva disegnare: sono la ragione per cui esistono.
@@ -527,7 +590,7 @@ export class GridPlacement {
           this.orphans.set(GridPlacement.key(this.layerList[index]!.id, b.col, b.row), b);
           continue;
         }
-        this.spawn(b.col, b.row, b.type, index);
+        this.spawn(b.col, b.row, b.type, index, b.scale ?? BLOCK_SCALE.normal);
       }
     }
 

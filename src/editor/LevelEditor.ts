@@ -1,10 +1,12 @@
 import Phaser from 'phaser';
-import { GRID, LAYERS, type BlockType } from '../config';
+import { BLOCK_SCALE, GRID, LAYERS, type BlockType } from '../config';
 import { BACKGROUNDS, registerRuntimeBlock, resolveBlock, sessionBlocks } from '../assets/catalog';
 import { GridPlacement } from '../mechanics/GridPlacement';
 import {
+  clampBlockScale,
   emptyLevel,
   normalizeProject,
+  stepBlockScale,
   type SerializedLevel,
   type SerializedProject,
 } from '../level/project';
@@ -192,6 +194,11 @@ export class LevelEditor {
   private cutButton!: HTMLButtonElement;
   private pasteButton!: HTMLButtonElement;
   private addLayerButton!: HTMLButtonElement;
+  /** Lo stepper della taglia: − quanto +. Vale sul pennello, o sull'area. */
+  private scaleStepper!: HTMLDivElement;
+  private scaleValue!: HTMLSpanElement;
+  private scaleDown!: HTMLButtonElement;
+  private scaleUp!: HTMLButtonElement;
 
   private tool: Tool = 'brush';
 
@@ -256,7 +263,7 @@ export class LevelEditor {
    * scende, non quando scatta il contagocce: a quel punto la cella contiene
    * gia' quello che si stava dipingendo.
    */
-  private press: { x: number; y: number; type: BlockType } | null = null;
+  private press: { x: number; y: number; type: BlockType; scale: number } | null = null;
   private pressTimer: number | null = null;
 
   /**
@@ -924,7 +931,8 @@ export class LevelEditor {
       if (p.event instanceof MouseEvent && p.event.altKey) {
         this.pointerDown = false;
         const { col, row } = this.scene.cellUnder(p);
-        this.pick(this.placement.topBlockAt(col, row)?.sprite.getData('type') as BlockType | undefined);
+        const top = this.placement.topBlockAt(col, row)?.sprite;
+        this.pick(top?.getData('type') as BlockType | undefined, top?.getData('scale') as number);
         return;
       }
 
@@ -1102,17 +1110,23 @@ export class LevelEditor {
     if (this.tool !== 'brush' && this.tool !== 'erase') return;
 
     const { col, row } = this.scene.cellUnder(p);
-    const type = this.placement.topBlockAt(col, row)?.sprite.getData('type') as BlockType | undefined;
+    const top = this.placement.topBlockAt(col, row)?.sprite;
+    const type = top?.getData('type') as BlockType | undefined;
     if (!type) return;
 
-    this.press = { x: p.x, y: p.y, type };
+    this.press = {
+      x: p.x,
+      y: p.y,
+      type,
+      scale: clampBlockScale(top?.getData('scale')),
+    };
     this.pressTimer = window.setTimeout(() => {
-      const picked = this.press?.type;
+      const picked = this.press;
       // Prima si disfa la pennellata che il tocco aveva gia' prodotto, poi si
       // prende il tipo: chi tiene premuto sta indicando un blocco, non
       // dipingendo.
       this.cancelStroke();
-      this.pick(picked);
+      this.pick(picked?.type, picked?.scale);
     }, PICK_MS);
   }
 
@@ -1130,9 +1144,13 @@ export class LevelEditor {
    * un'area selezionata, perche' li' la gomma e' "svuota l'area" ed e' una
    * scelta appena fatta.
    */
-  private pick(type: BlockType | undefined): void {
+  private pick(type: BlockType | undefined, scale: number = BLOCK_SCALE.normal): void {
     if (!type) return;
 
+    // Si riprende il blocco, non solo il suo tipo: chi indica un albero mezzano
+    // sta indicando quello, e ritrovarsi il pennello a taglia piena vorrebbe
+    // dire rifare a mano la misura che si era appena scelta.
+    this.placement.selectedScale = clampBlockScale(scale);
     // In cima ai recenti anche pescandolo col contagocce: cosi' la striscia in
     // basso lo mostra, ed e' li' che il lampo di conferma ha un pulsante da
     // illuminare. chooseBlock aggiorna selezione, strumento e cassetto.
@@ -1341,7 +1359,10 @@ export class LevelEditor {
         const col = anchor.col + b.col;
         const row = anchor.row + b.row;
         this.placement.remove(col, row);
-        if (this.placement.spawn(col, row, b.type)) placed.push({ col, row, type: b.type });
+        const scale = b.scale ?? BLOCK_SCALE.normal;
+        if (this.placement.spawn(col, row, b.type, this.placement.activeLayer, scale)) {
+          placed.push({ col, row, type: b.type, scale });
+        }
       }
       // Quello che arriva resta in mano, pronto da trascinare. E per vederlo
       // serve lo strumento selezione: incollare con la gomma attiva mostrerebbe
@@ -1481,13 +1502,38 @@ export class LevelEditor {
     if (this.selection.count > 0 && (tool === 'brush' || tool === 'erase')) {
       this.edit(() => {
         if (tool === 'brush') {
-          this.selection.fillArea(this.placement.selected);
+          this.selection.fillArea(this.placement.selected, this.placement.selectedScale);
           this.noteUsed(this.placement.selected);
         } else this.selection.clearArea();
       });
       return;
     }
     this.setTool(tool);
+  }
+
+  /**
+   * Cosa fanno − e + della taglia.
+   *
+   * E' la stessa regola di pennello e gomma: con un'area selezionata agiscono
+   * sui blocchi che ci sono dentro, senza cambiano la taglia **in mano**, cioe'
+   * quella con cui il pennello mettera' i prossimi. Il numero fra i due
+   * pulsanti dice sempre quale delle due si sta guardando.
+   *
+   * Cambiare la taglia in mano non e' una modifica della scena e non entra
+   * nella cronologia, esattamente come scegliere un altro sprite.
+   */
+  private stepScale(direction: 1 | -1): void {
+    // Il criterio e' "ci sono blocchi da ingrandire", non "c'e' un'area": su
+    // celle vuote non ci sarebbe niente da fare, e i due pulsanti sembrerebbero
+    // rotti. E' anche la condizione con cui il numero decide cosa mostrare, e
+    // le due cose devono restare la stessa.
+    if (this.selection.blockCount > 0) {
+      this.edit(() => this.selection.scaleArea(direction));
+      return;
+    }
+
+    this.placement.selectedScale = stepBlockScale(this.placement.selectedScale, direction);
+    this.refresh();
   }
 
   private setTool(tool: Tool): void {
@@ -1590,11 +1636,25 @@ export class LevelEditor {
       #editor-toolbar .tools button { display: inline-flex; align-items: center; gap: 6px; }
       #editor-toolbar .group { display: flex; flex-wrap: wrap; gap: 8px; }
       #editor-toolbar .group[hidden] { display: none; }
+      /* La taglia e' un gruppo solo: − quanto +, e non si stringe. Sta in testa
+         alla riga della palette e resta ferma mentre gli sprite scorrono. */
+      #editor-toolbar .stepper { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+      #editor-toolbar .stepper[hidden] { display: none; }
+      #editor-toolbar .stepper .freccia { padding: 0 10px; }
+      #editor-toolbar .stepper .valore {
+        min-width: 38px; text-align: center; font-size: 12px; opacity: .8;
+        font-variant-numeric: tabular-nums;
+      }
+      /* Quando agisce sull'area il numero si accende, come la parola che torna
+         visibile sui due strumenti che hanno cambiato mestiere. */
+      #editor-toolbar .stepper.azione .valore { color: #ffd166; opacity: 1; }
+      /* La prima riga: la taglia ferma a sinistra, i recenti che scorrono. */
+      #editor-toolbar .riga-palette { display: flex; align-items: center; gap: 8px; min-width: 0; }
       /* La palette scorre invece di andare a capo: con molti sprite caricati
          una barra che cresce in altezza mangerebbe tutta la scena. */
       #editor-toolbar .palette-strip {
         display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin;
-        align-items: center;
+        align-items: center; flex: 1 1 auto; min-width: 0;
       }
       /* Il display flex batte l'attributo hidden: senza questa riga le due
          palette resterebbero visibili tutte e due. */
@@ -1753,7 +1813,7 @@ export class LevelEditor {
          torna al comportamento di prima invece di rompersi. */
       @media (max-height: 600px) and (min-width: 600px) {
         #editor-toolbar { flex-direction: row; flex-wrap: wrap; align-items: center; }
-        #editor-toolbar .palette-strip { flex: 1 1 90px; min-width: 0; }
+        #editor-toolbar .riga-palette { flex: 1 1 90px; min-width: 0; }
         /* Base piccola di proposito: la palette scorre gia', mentre i comandi
            che vanno a capo si portano dietro un'altra riga di schermo. Con 160
            il quinto strumento faceva traboccare la riga e la barra tornava a
@@ -1771,11 +1831,32 @@ export class LevelEditor {
     this.root.id = 'editor-toolbar';
     this.root.innerHTML = `<style>${LevelEditor.style()}</style>`;
 
-    // Riga 1: gli sprite usati di recente. Il catalogo intero sta nel cassetto
+    // Riga 1: cosa si piazza. A sinistra la taglia, ferma; accanto gli sprite
+    // usati di recente, che scorrono. Il catalogo intero sta nel cassetto
     // (l'icona 🎨 in alto): qui restano i pochi su cui si torna di continuo.
+    //
+    // La taglia sta qui e non fra gli strumenti per due ragioni che vanno nella
+    // stessa direzione: e' la seconda meta' della domanda "cosa piazzo", e fra
+    // gli strumenti mandava a capo la riga — su un telefono da 390px sono 46px
+    // di scena in meno, cioe' piu' di quanto costi tutto questo comando.
+    const riga = document.createElement('div');
+    riga.className = 'riga-palette';
+    this.root.appendChild(riga);
+
+    this.scaleStepper = document.createElement('div');
+    this.scaleStepper.className = 'stepper scala';
+    riga.appendChild(this.scaleStepper);
+    this.scaleDown = this.button('−', () => this.stepScale(-1), this.scaleStepper);
+    this.scaleDown.className = 'freccia';
+    this.scaleValue = document.createElement('span');
+    this.scaleValue.className = 'valore';
+    this.scaleStepper.appendChild(this.scaleValue);
+    this.scaleUp = this.button('+', () => this.stepScale(1), this.scaleStepper);
+    this.scaleUp.className = 'freccia';
+
     const strip = document.createElement('div');
     strip.className = 'palette-strip';
-    this.root.appendChild(strip);
+    riga.appendChild(strip);
     this.paletteStrip = strip;
     this.renderRecent();
 
@@ -1784,7 +1865,7 @@ export class LevelEditor {
     // e due strisce contemporanee costerebbero una riga di schermo per niente.
     this.backdropStrip = document.createElement('div');
     this.backdropStrip.className = 'palette-strip fondali';
-    this.root.appendChild(this.backdropStrip);
+    riga.appendChild(this.backdropStrip);
 
     for (const image of BACKGROUNDS) {
       const b = document.createElement('button');
@@ -2284,9 +2365,10 @@ export class LevelEditor {
 
   private refresh(): void {
     const selected = this.selection.count;
+    const selezionati = selected > 0 ? this.selection.blockCount : 0;
     this.countLabel.textContent =
       selected > 0
-        ? `area: ${selected} celle, ${this.selection.blockCount} blocchi`
+        ? `area: ${selected} celle, ${selezionati} blocchi`
         : `${this.placement.count} blocchi`;
 
     // La palette dice cosa si sta per piazzare, e dipende dallo strumento.
@@ -2315,6 +2397,28 @@ export class LevelEditor {
       // la parola torna visibile proprio quando serve.
       button.classList.toggle('azione', area !== undefined);
     }
+    // La taglia: quella dei blocchi selezionati se c'e' un'area con dentro
+    // qualcosa, altrimenti quella in mano. Il numero dice su quale delle due
+    // stanno per agire − e +, che e' l'unica cosa che li rende leggibili.
+    const suArea = selezionati > 0;
+    const scala = suArea ? this.selection.uniformScale() : this.placement.selectedScale;
+    // `misto` e non la misura del primo: un'area con blocchi di taglie diverse
+    // non ha una taglia, e fingerla sarebbe una bugia che si scopre premendo.
+    this.scaleValue.textContent = scala === null ? 'misto' : `${Number(scala.toFixed(2))}×`;
+    const su = suArea ? "i blocchi dell'area" : 'il pennello';
+    this.scaleDown.title = `Rimpicciolisce ${su}`;
+    this.scaleUp.title = `Ingrandisce ${su}`;
+    this.scaleValue.title = suArea ? "Taglia dei blocchi dell'area" : 'Taglia del pennello';
+    this.scaleStepper.classList.toggle('azione', suArea);
+    // Con il fondale in mano la taglia dei blocchi non vuol dire niente: se ne
+    // va insieme alla palette dei blocchi, che in quella riga viene sostituita
+    // da quella dei fondali.
+    this.scaleStepper.hidden = this.tool === 'backdrop';
+    // Ai due estremi i pulsanti non farebbero niente: su una selezione mista
+    // invece resta tutto acceso, perche' li' ogni blocco ha il suo margine.
+    this.scaleDown.disabled = scala !== null && scala <= BLOCK_SCALE.min;
+    this.scaleUp.disabled = scala !== null && scala >= BLOCK_SCALE.max;
+
     this.undoButton.disabled = this.undoStack.length === 0;
     this.redoButton.disabled = this.redoStack.length === 0;
     // Il gruppo compare quando c'e' qualcosa da fare: una selezione in mano,

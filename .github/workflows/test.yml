@@ -22,6 +22,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Un tetto al tempo del job. Senza, il limite e' quello di GitHub — sei ore
+    # — e una run impiantata lascia il commit senza verdetto per tutto quel
+    # tempo: ne' spunta ne' croce, che e' peggio di una croce, perche' non c'e'
+    # niente da guardare. E' successo il 19 agosto, tre volte nella stessa
+    # serata. Il giro normale sta in 4-5 minuti, il piu' lento mai visto in 8.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -32,9 +38,43 @@ jobs:
 
       - run: npm ci
 
+      # La versione la decide `package-lock.json`, non questo file: leggerla da
+      # li' fa in modo che aggiornare Playwright invalidi la cache da sola,
+      # invece di lasciar rimettere al suo posto il browser della versione
+      # precedente.
+      - name: Versione di Playwright
+        id: playwright
+        run: |
+          echo "versione=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Il browser arriva dalla rete, ed e' dentro il passo che si e' impiantato.
+      # Ripreso dalla cache non si scarica: misurato, *Install Chromium* passa
+      # da 23 a 17 secondi. Il resto sono le librerie di sistema di
+      # `--with-deps`, che passano da apt e quindi dalla rete lo stesso — la
+      # cache riduce la strada rischiosa, non la elimina. A fare da rete sotto
+      # resta il tetto qui sotto.
+      #
+      # Niente `restore-keys`: un ripiego parziale rimetterebbe il browser di
+      # un'altra versione, che poi Playwright riscaricherebbe comunque. O la
+      # chiave combacia, o si scarica.
+      - name: Cache del browser
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright.outputs.versione }}
+
       # Solo Chromium: i test provano il gioco, non la portabilita' fra browser.
-      # `--with-deps` installa le librerie di sistema che servono al runner.
+      # `--with-deps` installa le librerie di sistema che servono al runner; il
+      # browser lo salta da se' se la cache l'ha gia' rimesso al suo posto.
+      #
+      # Il tetto sta anche qui e non solo sul job, perche' e' questo il passo che
+      # si pianta. E non serve solo a non aspettare: GitHub pubblica i log **a
+      # job finito**, quindi delle tre run appese del 19 agosto non si puo'
+      # leggere niente — l'API risponde 404. Un passo che scade e' un job che
+      # finisce, cioe' dei log da guardare per capire quale meta' si e' piantata,
+      # il download o apt. Normalmente ci mette meno di mezzo minuto.
       - name: Install Chromium
+        timeout-minutes: 5
         run: npx playwright install --with-deps chromium
 
       # Il typecheck e il build stanno qui e non in un job a parte: se il

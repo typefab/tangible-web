@@ -78,10 +78,13 @@ Gira sulla stessa pagina, senza installare niente e senza servizi esterni.
   importa anche uno sprite nuovo — vedi "Fare uno sprite da un'immagine"
 - **🖌 Pennello** (`B`) piazza, anche trascinando; **🧽 Gomma** (`E`) cancella.
   Con un'area selezionata questi due agiscono sull'area — vedi sotto
-- **tieni premuto su un blocco** per riprendere il suo tipo, senza cercarlo nel
-  cassetto: mezzo secondo e diventa quello scelto, va in cima ai recenti e il
-  suo pulsante lampeggia per dirtelo. Se stavi dipingendo, quella pennellata viene disfatta — stavi
+- **tieni premuto su un blocco** per riprendere il suo tipo **e la sua taglia**,
+  senza cercarlo nel cassetto: mezzo secondo e diventa quello scelto, va in cima
+  ai recenti e il suo pulsante lampeggia per dirtelo. Se stavi dipingendo, quella pennellata viene disfatta — stavi
   indicando quel blocco, non coprendolo. Da computer c'e' anche **Alt+clic**
+- **− 1× +**, accanto agli sprite recenti, e' **quanto grande** lo metti. E'
+  una taglia relativa: `1×` e' la misura normale di quello sprite, `2×` il
+  doppio, `0.5×` la meta'. I gradini sono 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4
 - **↶ / ↷** annullano e rifanno (`Ctrl+Z`, `Ctrl+Shift+Z`); un trascinamento
   intero conta come un solo passo
 - **Griglia: on/off** nasconde le linee per guardare la scena pulita; lo snap
@@ -105,6 +108,13 @@ Con un'area selezionata i due strumenti cambiano mestiere, e te lo dicono:
 |---|---|
 | **🖌 Riempi area** | mette il blocco scelto in **tutte** le celle dell'area, coprendo quello che c'era |
 | **🧽 Svuota area** | toglie tutto quello che c'e' nell'area |
+| **− 1× +** | ingrandisce o rimpicciolisce **i blocchi dell'area**, di un gradino per tocco |
+
+Con un'area in mano il numero fra − e + smette di dire la taglia del pennello e
+dice quella dei blocchi selezionati — si accende, per dirti che ha cambiato
+mestiere. Se dentro ci sono taglie diverse dice **misto**, e ogni blocco si
+muove partendo dalla sua: un'area con un albero grande e uno piccolo li tiene
+diversi invece di appiattirli.
 
 Poi:
 
@@ -255,6 +265,12 @@ usano continuano a funzionare — cambia solo quanto è grande. Serve perché il
 gioco riporta ogni blocco alla larghezza della cella: è questa la leva per avere
 oggetti di dimensioni diverse, non un PNG più grande.
 
+**Due leve diverse sulla dimensione**, e non si pestano i piedi: il `@2` nel
+nome del file dice quanto e' grande **un albero**, il `− 1× +` dell'editor dice
+che **quest'albero** e' meta' degli altri. Il secondo e' un moltiplicatore del
+primo, quindi cambiare idea sul `@2` non tocca le proporzioni che hai scelto
+blocco per blocco.
+
 **Le sottocartelle sono le categorie del cassetto.** Un PNG in
 `src/assets/blocks/natura/` finisce sotto "natura"; uno lasciato direttamente in
 `blocks/` finisce in "Generale" e funziona come prima. Non sei obbligato a
@@ -367,6 +383,9 @@ appena committi il PNG.
 - **Sprite di dimensioni diverse con un PNG solo**: la taglia sta nel nome del
   file (`albero@2.png` e' largo due celle) e non nell'id, quindi cambiarla non
   invalida i livelli gia' scritti
+- **Taglia del singolo blocco**: `− 1× +` sceglie quanto grande piazzarlo, e con
+  un'area in mano ingrandisce e rimpicciolisce quello che c'e' dentro. E' un
+  moltiplicatore della taglia del tipo, e nel file compare solo dove non e' 1
 - **Il tasto indietro non chiude la scheda per sbaglio**: prima chiude il
   pannello aperto, poi chiede conferma — e se hai lavoro non salvato te lo dice
 - **Barra pensata per il telefono**: i comandi rari stanno dietro **⋯**, e alla

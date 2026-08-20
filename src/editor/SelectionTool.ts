@@ -1,13 +1,20 @@
 import Phaser from 'phaser';
-import { GRID, Z, type BlockType } from '../config';
+import { BLOCK_SCALE, GRID, Z, type BlockType } from '../config';
 import { projection } from '../grid/projection';
 import { GridPlacement } from '../mechanics/GridPlacement';
+import { stepBlockScale } from '../level/project';
 
 /** Un blocco staccato dalla scena: sopravvive allo spostamento e agli appunti. */
 export interface Picked {
   col: number;
   row: number;
   type: BlockType;
+  /**
+   * Quanto e' grande, rispetto alla taglia del suo tipo. Viaggia con il blocco:
+   * spostare o incollare un albero mezzano deve ridarlo mezzano, altrimenti la
+   * scala sarebbe una proprieta' che si perde appena si tocca qualcosa.
+   */
+  scale?: number;
 }
 
 interface Cell {
@@ -145,14 +152,14 @@ export class SelectionTool {
    * Riempie l'area col blocco indicato, sostituendo quello che trova.
    * E' quello che fa il pennello quando c'e' una selezione.
    */
-  fillArea(type: BlockType): boolean {
+  fillArea(type: BlockType, scale: number = BLOCK_SCALE.normal): boolean {
     if (this.cells.length === 0) return false;
 
     for (const { col, row } of this.cells) {
       // Prima si toglie: `spawn` rifiuta una cella occupata, e riempire sopra
       // a qualcosa deve sostituirlo, non lasciarlo com'era.
       this.placement.remove(col, row, this.layerIndex);
-      this.placement.spawn(col, row, type, this.layerIndex);
+      this.placement.spawn(col, row, type, this.layerIndex, scale);
     }
     this.redraw();
     return true;
@@ -171,6 +178,39 @@ export class SelectionTool {
     }
     this.redraw();
     return cambiato;
+  }
+
+  /**
+   * Ingrandisce o rimpicciolisce i blocchi dell'area di un gradino.
+   *
+   * Ognuno parte dalla **sua** misura, non da una comune: un'area con un albero
+   * grande e uno piccolo li tiene diversi invece di appiattirli, che e' l'unico
+   * modo perche' il pulsante sia usabile su una selezione mista.
+   *
+   * @returns true se almeno un blocco e' cambiato: sotto e sopra i gradini
+   * estremi non succede niente, e non deve finire nella cronologia.
+   */
+  scaleArea(direction: 1 | -1): boolean {
+    let cambiato = false;
+    for (const b of this.blocksInArea()) {
+      const wanted = stepBlockScale(b.scale ?? BLOCK_SCALE.normal, direction);
+      if (this.placement.rescale(b.col, b.row, this.layerIndex, wanted)) cambiato = true;
+    }
+    return cambiato;
+  }
+
+  /**
+   * La taglia che hanno **tutti** i blocchi dell'area, se e' una sola.
+   *
+   * `null` quando sono di misure diverse, cosi' la barra puo' dirlo invece di
+   * mostrare la misura del primo e far credere che valga per tutti.
+   */
+  uniformScale(): number | null {
+    const blocks = this.blocksInArea();
+    if (blocks.length === 0) return null;
+
+    const first = blocks[0]!.scale ?? BLOCK_SCALE.normal;
+    return blocks.every((b) => (b.scale ?? BLOCK_SCALE.normal) === first) ? first : null;
   }
 
   clear(): void {
@@ -207,7 +247,9 @@ export class SelectionTool {
     const out: Picked[] = [];
     for (const { col, row } of this.cells) {
       const type = this.placement.typeAt(col, row, this.layerIndex);
-      if (type !== undefined) out.push({ col, row, type });
+      if (type === undefined) continue;
+      const scale = this.placement.scaleAt(col, row, this.layerIndex) ?? BLOCK_SCALE.normal;
+      out.push({ col, row, type, scale });
     }
     return out;
   }
@@ -290,7 +332,7 @@ export class SelectionTool {
       // La destinazione puo' essere occupata da un blocco che non fa parte
       // della selezione: la selezione vince, come in ogni editor.
       this.placement.remove(col, row, this.layerIndex);
-      this.placement.spawn(col, row, b.type, this.layerIndex);
+      this.placement.spawn(col, row, b.type, this.layerIndex, b.scale ?? BLOCK_SCALE.normal);
     }
 
     this.cells = this.cells.map((c) => ({ col: c.col + dCol, row: c.row + dRow }));

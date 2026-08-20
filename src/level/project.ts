@@ -1,4 +1,4 @@
-import { LAYERS, type BlockType } from '../config';
+import { BLOCK_SCALE, LAYERS, type BlockType } from '../config';
 
 /**
  * Il formato di `public/level.json`.
@@ -14,6 +14,42 @@ export interface SerializedBlock {
   col: number;
   row: number;
   type: BlockType;
+  /**
+   * Quanto e' grande **rispetto alla taglia del suo tipo**: 0.5 vuol dire meta'
+   * di quanto sarebbe normalmente.
+   *
+   * Assente quando vale 1, che e' il caso di quasi tutti i blocchi: un
+   * `level.json` fatto prima di questo campo, riaperto e riscritto, deve
+   * restare identico byte a byte. E' la stessa regola di `rotation` sui fondali
+   * e di `backgrounds` sui livelli.
+   */
+  scale?: number;
+}
+
+/**
+ * Riporta una scala dentro gli estremi ammessi. Qualunque schifezza vale 1:
+ * un blocco scritto male deve restare un blocco, non sparire ne' diventare
+ * invisibile perche' qualcuno ha scritto `scale: 0`.
+ */
+export function clampBlockScale(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return BLOCK_SCALE.normal;
+  return Math.min(BLOCK_SCALE.max, Math.max(BLOCK_SCALE.min, value));
+}
+
+/**
+ * Il gradino sopra o sotto quello attuale.
+ *
+ * Cerca il primo gradino **strettamente** oltre il valore: cosi' funziona anche
+ * partendo da una misura che sui gradini non ci sta — un file scritto a mano,
+ * o un valore rimasto da una scala precedente — invece di restare incastrata.
+ */
+export function stepBlockScale(value: number, direction: 1 | -1): number {
+  const steps = BLOCK_SCALE.steps;
+  const next =
+    direction > 0
+      ? steps.find((s) => s > value + 1e-6)
+      : [...steps].reverse().find((s) => s < value - 1e-6);
+  return next ?? clampBlockScale(value);
 }
 
 export interface SerializedLayer {
@@ -96,7 +132,7 @@ function normalizeLayer(raw: unknown, index: number): SerializedLayer {
     // quota quasi sempre intende una pila, non tre piani sovrapposti in loco.
     elevation: typeof raw.elevation === 'number' ? Math.max(0, Math.round(raw.elevation)) : index,
     visible: raw.visible !== false,
-    blocks: Array.isArray(raw.blocks) ? (raw.blocks.filter(isBlock) as SerializedBlock[]) : [],
+    blocks: normalizeBlocks(raw.blocks),
   };
 }
 
@@ -107,6 +143,29 @@ function isBlock(raw: unknown): boolean {
     typeof raw.row === 'number' &&
     typeof raw.type === 'string'
   );
+}
+
+/**
+ * I blocchi di un layer, ricostruiti puliti.
+ *
+ * Ricostruiti e non filtrati: cosi' una `scale` scritta male viene riportata
+ * dentro i limiti invece di viaggiare fino allo sprite, e il campo resta
+ * assente quando vale 1 — altrimenti riaprire e riscrivere un file vecchio lo
+ * riempirebbe di `"scale": 1`.
+ */
+function normalizeBlocks(raw: unknown): SerializedBlock[] {
+  if (!Array.isArray(raw)) return [];
+
+  const out: SerializedBlock[] = [];
+  for (const entry of raw) {
+    if (!isBlock(entry)) continue;
+    const b = entry as SerializedBlock;
+    const block: SerializedBlock = { col: b.col, row: b.row, type: b.type };
+    const scale = clampBlockScale(b.scale);
+    if (scale !== BLOCK_SCALE.normal) block.scale = scale;
+    out.push(block);
+  }
+  return out;
 }
 
 /** Scarta quello che non e' un fondale scritto bene, invece di far saltare tutto. */
@@ -179,7 +238,7 @@ export function normalizeProject(data: unknown): SerializedProject {
   const flat = (data as FlatFile).blocks;
   if (Array.isArray(flat)) {
     return {
-      levels: [{ name: 'Livello 1', layers: [{ ...emptyLayer(), blocks: flat.filter(isBlock) }] }],
+      levels: [{ name: 'Livello 1', layers: [{ ...emptyLayer(), blocks: normalizeBlocks(flat) }] }],
     };
   }
 

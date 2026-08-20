@@ -1,7 +1,7 @@
 # Piano di lavoro — Tangible Cushion
 
 Documento di riferimento su scelte di architettura, stato e prossimi passi.
-Ultimo aggiornamento: 19 agosto 2026.
+Ultimo aggiornamento: 20 agosto 2026.
 
 ---
 
@@ -534,6 +534,69 @@ e non un rombo ridisegnato a mano: se un giorno la proiezione cambia,
 l'anteprima cambia con lei invece di diventare una bugia. E' lo stesso motivo
 per cui l'editor disegna attraverso la scena.
 
+### Due leve sulla dimensione, e perche' non fanno a pugni
+
+La taglia nel nome del file risponde a "quanto e' grande un albero". Restava
+senza risposta l'altra meta': "quest'albero e' piu' piccolo di quello". Sono
+domande diverse e servono due leve, ma la seconda poteva facilmente rompere la
+prima.
+
+Il campo e' `scale` dentro il blocco, ed e' un **moltiplicatore** della taglia
+del tipo, non una misura in celle. Sembra un dettaglio e regge l'invariante piu'
+vecchia delle due: `albero@2.png` e `albero@3.png` sono lo stesso blocco
+`albero`, e ripensare la taglia non deve invalidare i `level.json` gia' scritti.
+Con una misura assoluta, cambiare il suffisso avrebbe lasciato mezzo livello
+alla vecchia proporzione; col moltiplicatore, "meta' di un albero" resta meta'
+di un albero qualunque cosa voglia dire domani.
+
+| | Dove sta | Risponde a |
+|---|---|---|
+| **taglia del tipo** | nel nome del file, `albero@2.png` | quanto e' grande un albero |
+| **scala del blocco** | in `level.json`, `"scale": 0.5` | quest'albero e' meta' degli altri |
+
+Tre conseguenze che non erano ovvie:
+
+- **il campo non compare quando vale 1.** E' la stessa regola di `rotation` sui
+  fondali: un file fatto prima, riaperto e riscritto, resta identico byte a
+  byte. Costa tre righe in `normalizeBlocks`, che ricostruisce i blocchi invece
+  di filtrarli — cosi' una `scale` scritta male viene riportata dentro i limiti
+  invece di arrivare fino allo sprite.
+- **gradini e non un fattore continuo**: 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4. Con
+  un fattore moltiplicativo si legge "1.5625×" dopo due tocchi, e tornare
+  esattamente a 1 diventa un caso fortunato. Su una selezione **mista** ogni
+  blocco parte dal **suo** gradino: appiattirli tutti sulla stessa misura
+  renderebbe il pulsante inutilizzabile proprio dove serve.
+- **la scala viaggia col blocco.** Spostare un'area, copiarla, incollarla in
+  un'altra scheda, riprenderlo col contagocce: se anche uno solo di questi
+  percorsi la perdesse, sarebbe una proprieta' che si cancella toccando le cose,
+  cioe' peggio che non averla.
+
+**Dove sta il comando, e perche' non fra gli strumenti.** La prima versione
+metteva `− 1× +` nella riga degli strumenti, che e' dove sta "cosa fa il dito".
+Misurato su un telefono da 390px: la riga andava a capo, e la barra tornava da
+171 a 217px — 46px di scena persi per un comando che ne occupa 99 di larghezza.
+Ora sta accanto agli sprite recenti, che e' anche il posto giusto per un'altra
+ragione: quella riga e' la domanda "cosa piazzo", e la taglia ne e' la seconda
+meta'. Col telefono girato la riga della palette e' l'elemento flessibile, e li'
+lo stepper non entra nemmeno nel conto di chi va a capo: 79px, come prima.
+
+I due pulsanti hanno la doppia funzione di pennello e gomma, per la stessa
+ragione: con un'area selezionata agiscono sull'area, senza cambiano la taglia in
+mano. E come per quei due, e' il numero in mezzo a dirlo — si accende e passa a
+dire la taglia dei blocchi selezionati, o **misto** se ce ne sono di diverse.
+Mostrare la misura del primo sarebbe una bugia che si scopre premendo.
+
+Con una differenza rispetto a pennello e gomma, ed e' la cosa che si sarebbe
+sbagliata: il criterio non e' "c'e' un'area" ma "**ci sono blocchi** nell'area".
+Riempire una selezione di celle vuote ha senso, ingrandirle no: su terreno vuoto
+i due pulsanti tornano a essere la taglia del pennello, che e' anche cio' che il
+numero mostra. La condizione e' una sola, condivisa fra chi decide e chi
+mostra — se fossero due, si potrebbe leggere "pennello" e vedere agire l'area.
+
+Cambiare la taglia in mano **non entra nella cronologia**: e' una scelta come
+scegliere un altro sprite, non una modifica della scena. Ingrandire un'area si',
+ed e' un solo `Ctrl+Z`.
+
 ### La matita, rifatta dopo averla usata
 
 La prima versione e' stata provata a mano e ne sono usciti sei difetti in fila.
@@ -777,6 +840,43 @@ Scelte che tengono la suite affidabile:
 - `CHROMIUM_PATH` permette di usare un Chromium gia' installato quando la sua
   build non coincide con quella attesa da Playwright.
 
+**Una run senza verdetto e' peggio di una rossa.** Il 19 agosto tre run di
+`test.yml` si sono impiantate sul passo *Install Chromium* — quello che scarica
+il browser — e ci sono rimaste: il giorno dopo erano ancora `in_progress`, coi
+tre commit senza ne' spunta ne' croce. Una croce si guarda e si capisce; una run
+appesa non dice niente, e nel frattempo il commit sembra soltanto lento.
+
+La cura sta su due piani, e sono due cose diverse:
+
+| | Cosa fa |
+|---|---|
+| `timeout-minutes: 15` sul job | il tetto vero. Senza, il limite e' quello di GitHub — **sei ore** |
+| `timeout-minutes: 5` su *Install Chromium* | fa cadere il fallimento **sul passo che si e' piantato**, invece di troncare il job in un punto qualunque |
+| cache di `~/.cache/ms-playwright` | il browser non si riscarica: una parte in meno della strada che si e' rotta |
+
+**Il tetto sul passo serve anche a un'altra cosa, e non era ovvia:** GitHub
+pubblica i log **a job finito**. Delle tre run appese non si puo' leggere niente
+— l'API risponde 404 — quindi non si sa nemmeno quale meta' di quel passo si sia
+piantata, il download del browser o l'`apt` di `--with-deps`. Un passo che scade
+e' un job che finisce, cioe' dei log da guardare la prossima volta.
+
+**E la cache non elimina il rischio, lo riduce.** Misurato sulle due run: il
+primo giro riempie la cache, il secondo la ritrova — *Install Chromium* passa da
+23 a 17 secondi. Il resto sono le librerie di sistema, che passano da apt e
+quindi dalla rete lo stesso. Il tetto resta la rete sotto, e la cache e' quello
+che rende meno probabile doverla usare.
+
+I numeri vengono dalle run vere, non a occhio: il giro normale sta in 4-5 minuti
+— una ventina di secondi per il browser, il resto sono i test — e il piu' lento
+mai visto e' di 8. La chiave della cache porta la versione di Playwright letta da
+`package-lock.json` e non scritta nel workflow, cosi' aggiornarlo la invalida da
+solo. Senza `restore-keys`: un ripiego parziale rimetterebbe il browser di
+un'altra versione, che Playwright riscaricherebbe comunque.
+
+Gli altri due workflow restano senza tetto, ed e' una scelta: `deploy-web.yml`
+ha `cancel-in-progress` sul gruppo `pages`, quindi una run appesa la cancella il
+push successivo, e `build-apk.yml` si avvia a mano.
+
 **I test non bloccano il deploy.** Una scena nuova si pubblica caricando
 `level.json` dalla UI web di GitHub, e quel giro deve restare di un minuto: un
 test rosso per una ragione che non c'entra con un livello non deve impedire di
@@ -811,11 +911,12 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Fondali | `scenes/Backdrop.ts` | immagini dietro la scena, per livello; strumento 🖼 nell'editor |
 | Matita e lazo | `editor/MaskEditor.ts` | gomma, ripristino, lazo e pizzico; produce una maschera, non un'immagine |
 | Taglia e anteprima sulla cella | `editor/SpriteImporter.ts`, `assets/catalog.ts` | `albero@2.png` e' largo due celle; il rombo dell'anteprima viene da `projection.ts` |
+| Scala del singolo blocco | `level/project.ts`, `mechanics/GridPlacement.ts` | `scale` moltiplica la taglia del tipo, assente quando vale 1; `− 1× +` sul pennello o sull'area |
 | Tasto indietro | `editor/BackGuard.ts` | chiude il pannello in cima, e chiede prima di lasciare la scheda |
 | Cassetto degli sprite | `editor/SpriteDrawer.ts` | catalogo per categoria e usati nel livello; in basso restano i recenti |
 | Editor d'immagine | `editor/SpriteImporter.ts` | togli sfondo, pixel-art, sprite di sessione + PNG da committare |
 | Ritaglio a mano | `editor/MaskEditor.ts` | gomma e ripristino sui pixel finali, con zoom e annulla per tratto |
-| Test | `test/`, `playwright.config.ts` | 114 test sul gioco che gira, in CI a ogni push |
+| Test | `test/`, `playwright.config.ts` | 125 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
@@ -857,6 +958,17 @@ Test principali superati:
   commit diventa `blocco_largo@2.png` e in scena quel blocco e' **largo il
   doppio** di uno normale; l'anteprima disegna la cella e ci mette sopra lo
   sprite
+- la scala del blocco: col pennello a `2×` il blocco piazzato e' **largo il
+  doppio** di uno normale, e nel file porta `"scale": 2` mentre gli altri
+  restano `{col,row,type}` e basta; `serialize -> load -> serialize` non cambia
+  niente e il blocco riletto **dalla scena** e' ancora della sua misura; con
+  un'area in mano i due pulsanti agiscono sui blocchi che ci sono dentro e non
+  su quelli fuori, e `Ctrl+Z` li rimette; su un'area mista la barra dice
+  **misto** e ognuno parte dal suo gradino; spostamento, copia-incolla e
+  contagocce **conservano la taglia**; una `scale` a 0, a 99 o scritta a parole
+  non fa sparire il blocco; ai due estremi della scala il pulsante si spegne;
+  su un'area **senza blocchi** i due pulsanti tornano a essere la taglia del
+  pennello, come dice il numero
 - la matita, sui sei difetti trovati usandola: un tratto veloce **da un capo
   all'altro in un solo salto** lascia una linea continua e non una fila di buchi;
   il ritaglio **resta dopo aver cambiato il lato in pixel**, e il resto
@@ -989,6 +1101,16 @@ Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
   scritti e provati col protocollo, non con una mano: restano da guardare. Il
   lazo tracciato col dito su una sagoma complicata e' l'altra cosa che nessun
   test dice.
+- **Il tetto di `test.yml` non e' ancora scattato.** La cache si': provata su
+  due run di fila, la seconda la ritrova. Che il timeout tronchi davvero una run
+  impiantata lo dira' solo la prossima volta che si impianta — cioe' si spera
+  mai. Restano appese le tre run del 19 agosto: nessuno le ha cancellate, e non
+  si cancellano da sole.
+- **La scala del blocco e' stata guardata, non toccata.** I gradini, il numero
+  che cambia mestiere con la selezione e l'ingombro della barra sono misurati
+  sull'editor che gira e in uno screenshot a 390x780; quanto siano comodi da
+  centrare col dito — sono i due pulsanti piu' stretti della barra — lo dira'
+  solo una mano.
 - **Nessuno sprite importato e' ancora stato committato e ripreso dal gioco.**
   Il giro completo dell'ibrido — scarica, commit, deploy, il blocco che torna
   come sprite di build — e' costruito ma non percorso fino in fondo.
@@ -1061,7 +1183,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 3. ~~Selezione e spostamento di aree~~
 4. ~~Salvataggio locale e apertura di un file~~
 5. ~~Pinch-zoom~~ — insieme al pan a due dita
-6. ~~Test automatici~~ — oggi 114, in CI a ogni push
+6. ~~Test automatici~~ — oggi 125, in CI a ogni push
 7. ~~Copia e incolla della selezione~~ — anche fra schede
 8. ~~Produrre il primo APK~~ — 6,5 MB negli Artifacts, mai installato
 9. ~~Cassetto degli sprite per categoria~~ — catalogo diviso per cartella, e in
@@ -1072,25 +1194,22 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
     angoli, e il punto indicato fa da seme anche dentro la figura
 12. ~~Sprite di dimensioni diverse senza rifare il PNG~~ — la taglia sta nel
     nome del file, con l'anteprima sulla cella per sceglierla
+13. ~~Scala del singolo blocco piazzato~~ — `scale` facoltativo in `level.json`,
+    moltiplicatore della taglia del tipo; `− 1× +` vale sul pennello o sull'area
+14. ~~Un tetto al tempo di `test.yml`, e la cache del browser~~ — 15 minuti sul
+    job, 5 sul passo che si e' impiantato tre volte, piu' `~/.cache/ms-playwright`
+    con la chiave sulla versione di Playwright
 
 ### Da riprendere, in ordine
 
-13. **Scala del singolo blocco piazzato.** Un campo `scale` facoltativo in
-    `level.json` piu' i comandi nell'editor — scala del pennello, e
-    ingrandisci/rimpicciolisci la selezione. La taglia per tipo copre "quanto e'
-    grande un albero"; questa copre "quest'albero e' piu' piccolo". **E' il primo
-    lavoro da riprendere**, ed era gia' concordato come secondo passo.
-14. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
+15. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
     selezione e dimensione dei pulsanti sono tarati su un viewport, non su una
     mano. Il ritaglio e' stato provato da Fabrizio e va; il pizzico dentro la
     matita no.
-15. **Mettere un `timeout-minutes` a `test.yml`**, piu' una cache di
-    `~/.cache/ms-playwright`. Vedi l'episodio del 19 agosto: senza timeout un
-    download impiantato lascia il commit senza verdetto per sei ore.
 16. **Percorrere il giro completo di uno sprite importato**: scarica, commit,
     deploy, e ritrovarlo come blocco di build. E' l'unica prova che l'ibrido
     chiude il cerchio.
-17. **Spezzare `LevelEditor.ts`**, sopra gli 85 KB. Cassetto, importer, matita e
+17. **Spezzare `LevelEditor.ts`**, sopra i 100 KB. Cassetto, importer, matita e
     sentinella sono nati fuori, ma il file non si e' ridotto.
 18. **Arte dei blocchi ridisegnata a rombo** (vedi rischi) — lavoro di grafica.
 
@@ -1108,7 +1227,8 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | **Il peso dei fondali** | Un blocco pesa 300 byte, un fondale a schermo intero puo' pesarne un milione. Finiscono nel sito **e nell'APK**, e chi apre la pagina se li scarica. Vanno tenuti piccoli, in `jpg` o `webp` |
 | **Salva non porta il lavoro nel gioco** | Salva scrive in `localStorage`, solo Scarica + upload su GitHub aggiorna il gioco. La UI lo dice in tre punti, ma resta il modo piu' facile di perdere una serata |
 | **`localStorage` sta in ~5 MB** | Un progetto da cento livelli pieni ci arriva (~2 MB, ma cresce). Ora Salva lo dice invece di fingere, e resta Scarica; la soluzione vera e' IndexedDB |
-| **Uno sprite grande copre celle che non occupa** | La profondita' resta `col + row` della sua unica cella: un albero largo due puo' finire davanti a qualcosa che dovrebbe stargli davanti. E' come funziona l'isometrica, non un difetto da correggere — ma si vede, e con l'arte a rombi ancora in sospeso conviene saperlo |
+| **Uno sprite grande copre celle che non occupa** | La profondita' resta `col + row` della sua unica cella: un albero largo due puo' finire davanti a qualcosa che dovrebbe stargli davanti. E' come funziona l'isometrica, non un difetto da correggere — ma si vede, e con l'arte a rombi ancora in sospeso conviene saperlo. Vale identico per la scala del singolo blocco, che e' l'altra strada per fare un blocco piu' largo della sua cella |
+| La scala non passa dall'inventario | In gioco, rompere un blocco ne restituisce il **tipo**: l'inventario tiene tipi, non misure, quindi ripiazzandolo torna a taglia normale. In editor non succede — li' i blocchi non si rompono — ma se un giorno il gioco dovesse conservarla, la leva e' l'inventario, non il piazzamento |
 | Il lavoro locale vive in un browser solo | Cambiando telefono o svuotando i dati del sito sparisce. Non e' un backup: il backup e' il commit su GitHub |
 | **Uno sprite di sessione sembra permanente** | Ora sopravvive alla ricarica in questo browser, il che lo fa sembrare ancora piu' definitivo di prima: per chiunque altro, e nel gioco pubblicato, non esiste finche' il PNG non e' committato. Il pannello dice dove metterlo, ma resta un avviso da leggere contro un'interfaccia che non lo mostra |
 | **Sprite grandi e peso del PNG** | Il lato in pixel arriva a 1024 e la sorgente di lavoro a 2048. Uno sprite a quella risoluzione non pesa piu' come i 300 byte di `basic.png`, e finisce nel sito e nell'APK come i fondali. Vale la stessa regola: tenerli piccoli quanto basta |
