@@ -852,10 +852,22 @@ La cura sta su due piani, e sono due cose diverse:
 |---|---|
 | `timeout-minutes: 15` sul job | il tetto vero. Senza, il limite e' quello di GitHub — **sei ore** |
 | `timeout-minutes: 5` su *Install Chromium* | fa cadere il fallimento **sul passo che si e' piantato**, invece di troncare il job in un punto qualunque |
-| cache di `~/.cache/ms-playwright` | ripreso dalla cache il browser non si scarica: la strada che si e' rotta non viene nemmeno percorsa |
+| cache di `~/.cache/ms-playwright` | il browser non si riscarica: una parte in meno della strada che si e' rotta |
+
+**Il tetto sul passo serve anche a un'altra cosa, e non era ovvia:** GitHub
+pubblica i log **a job finito**. Delle tre run appese non si puo' leggere niente
+— l'API risponde 404 — quindi non si sa nemmeno quale meta' di quel passo si sia
+piantata, il download del browser o l'`apt` di `--with-deps`. Un passo che scade
+e' un job che finisce, cioe' dei log da guardare la prossima volta.
+
+**E la cache non elimina il rischio, lo riduce.** Misurato sulle due run: il
+primo giro riempie la cache, il secondo la ritrova — *Install Chromium* passa da
+23 a 17 secondi. Il resto sono le librerie di sistema, che passano da apt e
+quindi dalla rete lo stesso. Il tetto resta la rete sotto, e la cache e' quello
+che rende meno probabile doverla usare.
 
 I numeri vengono dalle run vere, non a occhio: il giro normale sta in 4-5 minuti
-— mezzo minuto di download del browser, il resto sono i test — e il piu' lento
+— una ventina di secondi per il browser, il resto sono i test — e il piu' lento
 mai visto e' di 8. La chiave della cache porta la versione di Playwright letta da
 `package-lock.json` e non scritta nel workflow, cosi' aggiornarlo la invalida da
 solo. Senza `restore-keys`: un ripiego parziale rimetterebbe il browser di
@@ -1089,11 +1101,11 @@ Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
   scritti e provati col protocollo, non con una mano: restano da guardare. Il
   lazo tracciato col dito su una sagoma complicata e' l'altra cosa che nessun
   test dice.
-- **Il tetto di `test.yml` non e' ancora scattato, e la cache non ha ancora
-  fatto centro.** Sono scritti e la run successiva li esercita a meta': la cache
-  si puo' solo *riempire* la prima volta, e si vede se funziona alla seconda. Che
-  il timeout tronchi davvero una run impiantata lo dira' solo la prossima volta
-  che si impianta — cioe' si spera mai.
+- **Il tetto di `test.yml` non e' ancora scattato.** La cache si': provata su
+  due run di fila, la seconda la ritrova. Che il timeout tronchi davvero una run
+  impiantata lo dira' solo la prossima volta che si impianta — cioe' si spera
+  mai. Restano appese le tre run del 19 agosto: nessuno le ha cancellate, e non
+  si cancellano da sole.
 - **La scala del blocco e' stata guardata, non toccata.** I gradini, il numero
   che cambia mestiere con la selezione e l'ingombro della barra sono misurati
   sull'editor che gira e in uno screenshot a 390x780; quanto siano comodi da

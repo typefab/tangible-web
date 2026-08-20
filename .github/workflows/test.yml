@@ -47,9 +47,12 @@ jobs:
         run: |
           echo "versione=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # Il browser pesa un centinaio di MB e arriva dalla rete: e' esattamente
-      # il passo che si e' impiantato. Ripreso dalla cache non si scarica
-      # affatto, quindi la strada che si e' rotta non viene nemmeno percorsa.
+      # Il browser arriva dalla rete, ed e' dentro il passo che si e' impiantato.
+      # Ripreso dalla cache non si scarica: misurato, *Install Chromium* passa
+      # da 23 a 17 secondi. Il resto sono le librerie di sistema di
+      # `--with-deps`, che passano da apt e quindi dalla rete lo stesso — la
+      # cache riduce la strada rischiosa, non la elimina. A fare da rete sotto
+      # resta il tetto qui sotto.
       #
       # Niente `restore-keys`: un ripiego parziale rimetterebbe il browser di
       # un'altra versione, che poi Playwright riscaricherebbe comunque. O la
@@ -64,11 +67,12 @@ jobs:
       # `--with-deps` installa le librerie di sistema che servono al runner; il
       # browser lo salta da se' se la cache l'ha gia' rimesso al suo posto.
       #
-      # Il tetto sta anche qui e non solo sul job, perche' e' questo il passo
-      # che si pianta: cosi' il fallimento cade dove e' successo qualcosa, e chi
-      # guarda la run legge subito cosa e' andato storto invece di trovare il
-      # job troncato in un punto qualunque. Normalmente ci mette meno di un
-      # minuto.
+      # Il tetto sta anche qui e non solo sul job, perche' e' questo il passo che
+      # si pianta. E non serve solo a non aspettare: GitHub pubblica i log **a
+      # job finito**, quindi delle tre run appese del 19 agosto non si puo'
+      # leggere niente — l'API risponde 404. Un passo che scade e' un job che
+      # finisce, cioe' dei log da guardare per capire quale meta' si e' piantata,
+      # il download o apt. Normalmente ci mette meno di mezzo minuto.
       - name: Install Chromium
         timeout-minutes: 5
         run: npx playwright install --with-deps chromium
