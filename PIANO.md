@@ -840,6 +840,31 @@ Scelte che tengono la suite affidabile:
 - `CHROMIUM_PATH` permette di usare un Chromium gia' installato quando la sua
   build non coincide con quella attesa da Playwright.
 
+**Una run senza verdetto e' peggio di una rossa.** Il 19 agosto tre run di
+`test.yml` si sono impiantate sul passo *Install Chromium* — quello che scarica
+il browser — e ci sono rimaste: il giorno dopo erano ancora `in_progress`, coi
+tre commit senza ne' spunta ne' croce. Una croce si guarda e si capisce; una run
+appesa non dice niente, e nel frattempo il commit sembra soltanto lento.
+
+La cura sta su due piani, e sono due cose diverse:
+
+| | Cosa fa |
+|---|---|
+| `timeout-minutes: 15` sul job | il tetto vero. Senza, il limite e' quello di GitHub — **sei ore** |
+| `timeout-minutes: 5` su *Install Chromium* | fa cadere il fallimento **sul passo che si e' piantato**, invece di troncare il job in un punto qualunque |
+| cache di `~/.cache/ms-playwright` | ripreso dalla cache il browser non si scarica: la strada che si e' rotta non viene nemmeno percorsa |
+
+I numeri vengono dalle run vere, non a occhio: il giro normale sta in 4-5 minuti
+— mezzo minuto di download del browser, il resto sono i test — e il piu' lento
+mai visto e' di 8. La chiave della cache porta la versione di Playwright letta da
+`package-lock.json` e non scritta nel workflow, cosi' aggiornarlo la invalida da
+solo. Senza `restore-keys`: un ripiego parziale rimetterebbe il browser di
+un'altra versione, che Playwright riscaricherebbe comunque.
+
+Gli altri due workflow restano senza tetto, ed e' una scelta: `deploy-web.yml`
+ha `cancel-in-progress` sul gruppo `pages`, quindi una run appesa la cancella il
+push successivo, e `build-apk.yml` si avvia a mano.
+
 **I test non bloccano il deploy.** Una scena nuova si pubblica caricando
 `level.json` dalla UI web di GitHub, e quel giro deve restare di un minuto: un
 test rosso per una ragione che non c'entra con un livello non deve impedire di
@@ -1064,6 +1089,11 @@ Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
   scritti e provati col protocollo, non con una mano: restano da guardare. Il
   lazo tracciato col dito su una sagoma complicata e' l'altra cosa che nessun
   test dice.
+- **Il tetto di `test.yml` non e' ancora scattato, e la cache non ha ancora
+  fatto centro.** Sono scritti e la run successiva li esercita a meta': la cache
+  si puo' solo *riempire* la prima volta, e si vede se funziona alla seconda. Che
+  il timeout tronchi davvero una run impiantata lo dira' solo la prossima volta
+  che si impianta — cioe' si spera mai.
 - **La scala del blocco e' stata guardata, non toccata.** I gradini, il numero
   che cambia mestiere con la selezione e l'ingombro della barra sono misurati
   sull'editor che gira e in uno screenshot a 390x780; quanto siano comodi da
@@ -1154,16 +1184,16 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
     nome del file, con l'anteprima sulla cella per sceglierla
 13. ~~Scala del singolo blocco piazzato~~ — `scale` facoltativo in `level.json`,
     moltiplicatore della taglia del tipo; `− 1× +` vale sul pennello o sull'area
+14. ~~Un tetto al tempo di `test.yml`, e la cache del browser~~ — 15 minuti sul
+    job, 5 sul passo che si e' impiantato tre volte, piu' `~/.cache/ms-playwright`
+    con la chiave sulla versione di Playwright
 
 ### Da riprendere, in ordine
 
-14. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
+15. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
     selezione e dimensione dei pulsanti sono tarati su un viewport, non su una
     mano. Il ritaglio e' stato provato da Fabrizio e va; il pizzico dentro la
     matita no.
-15. **Mettere un `timeout-minutes` a `test.yml`**, piu' una cache di
-    `~/.cache/ms-playwright`. Vedi l'episodio del 19 agosto: senza timeout un
-    download impiantato lascia il commit senza verdetto per sei ore.
 16. **Percorrere il giro completo di uno sprite importato**: scarica, commit,
     deploy, e ritrovarlo come blocco di build. E' l'unica prova che l'ibrido
     chiude il cerchio.

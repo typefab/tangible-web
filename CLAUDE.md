@@ -170,7 +170,10 @@ compositing GPU della cattura. Ci abbiamo perso tempo una volta.
 ## GitHub
 
 - **`test.yml`** gira a ogni push e PR. **Non blocca il deploy**, di proposito:
-  pubblicare una scena nuova deve restare un'operazione da un minuto.
+  pubblicare una scena nuova deve restare un'operazione da un minuto. Ha un
+  tetto di 15 minuti sul job e 5 sul passo che scarica il browser: senza, una
+  run impiantata lascia il commit senza verdetto per sei ore, ed e' gia'
+  successo. Il browser sta in cache, con la chiave sulla versione di Playwright.
 - **`deploy-web.yml`** pubblica su Pages a ogni push su `main`.
 - **`build-apk.yml`** e' manuale.
 - Le action stanno alle major correnti: i runner hanno dismesso Node 20.
