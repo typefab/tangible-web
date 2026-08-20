@@ -98,6 +98,21 @@ test('indicando lo sfondo col contagocce, la figura resta', async ({ page }) => 
   expect(figura.a).toBeGreaterThan(0);
   expect(figura.r).toBeGreaterThan(150);
   expect(figura.g).toBeLessThan(100);
-  // ...e il bianco attorno se ne va.
-  expect((await pixel(page, 'con_contagocce', 100, 100)).a).toBe(0);
+
+  // ...e il bianco attorno se n'e' andato. Non si guarda piu' un punto lontano
+  // sperando che sia rimasto vuoto: da quando la pipeline ritaglia ai bordi del
+  // contenuto, li' non c'e' piu' niente perche' il PNG **e'** il quadrato
+  // rosso. A dirlo e' che di bianco opaco non ne resta nemmeno un pixel.
+  const bianchi = await page.evaluate(() => {
+    const src = window.game.scene.keys.GameScene.textures
+      .get('con_contagocce')
+      .getSourceImage() as HTMLCanvasElement;
+    const d = src.getContext('2d')!.getImageData(0, 0, src.width, src.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3]! > 8 && d[i]! > 200 && d[i + 1]! > 200 && d[i + 2]! > 200) n++;
+    }
+    return n;
+  });
+  expect(bianchi).toBe(0);
 });

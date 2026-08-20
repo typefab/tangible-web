@@ -6,17 +6,29 @@ import { openEditor } from './helpers';
  * perche' erano tutti invisibili a chi guardava solo il risultato finale.
  */
 
-/** Un quadrato rosso pieno: senza sfondo da togliere, si vede solo cio' che fa la matita. */
-async function apriMatita(page: Page, lato = 64): Promise<void> {
-  const dataUrl = await page.evaluate((n) => {
+/**
+ * Un quadrato rosso pieno: senza sfondo da togliere, si vede solo cio' che fa
+ * la matita.
+ *
+ * Con `segno` ci finisce anche un quadratino blu in un angolo. Serve a chi deve
+ * dimostrare che qualcosa e' stato **tolto**: da quando la pipeline ritaglia ai
+ * bordi del contenuto, guardare l'angolo del PNG non lo dice piu' — l'angolo e'
+ * la figura tenuta. Un colore che c'era e non c'e' piu' lo dice ancora.
+ */
+async function apriMatita(page: Page, lato = 64, segno = false): Promise<void> {
+  const dataUrl = await page.evaluate(([n, marchio]) => {
     const c = document.createElement('canvas');
-    c.width = n;
-    c.height = n;
+    c.width = n as number;
+    c.height = n as number;
     const x = c.getContext('2d')!;
     x.fillStyle = '#d21f2f';
-    x.fillRect(0, 0, n, n);
+    x.fillRect(0, 0, n as number, n as number);
+    if (marchio) {
+      x.fillStyle = '#1b6ca8';
+      x.fillRect(2, 2, Math.round((n as number) * 0.2), Math.round((n as number) * 0.2));
+    }
     return c.toDataURL('image/png');
-  }, lato);
+  }, [lato, segno] as const);
   const buffer = Buffer.from(dataUrl.split(',')[1]!, 'base64');
 
   await page.click('#level-tabs .sprite-toggle');
@@ -144,7 +156,8 @@ test('Sposta muove l\'immagine', async ({ page }) => {
 
 test('il lazo tiene quello che sta dentro il contorno', async ({ page }) => {
   await openEditor(page);
-  await apriMatita(page);
+  // Col segno blu in un angolo: e' quello che deve sparire.
+  await apriMatita(page, 64, true);
 
   await page.click('#mask-editor button[title^="Traccia un contorno"]');
 
@@ -162,10 +175,32 @@ test('il lazo tiene quello che sta dentro il contorno', async ({ page }) => {
 
   await concludi(page, 'lazo', 'lazo');
 
-  // Dentro resta, fuori se ne va: e' il ritaglio, non la gomma.
+  // Dentro resta: il centro e' ancora pieno.
   expect(await alphaAt(page, 'lazo', 0.5, 0.5)).toBeGreaterThan(0);
-  expect(await alphaAt(page, 'lazo', 0.05, 0.05)).toBe(0);
-  expect(await alphaAt(page, 'lazo', 0.95, 0.95)).toBe(0);
+
+  // E fuori se n'e' andato. Non si guarda piu' l'angolo del PNG: da quando la
+  // pipeline ritaglia ai bordi del contenuto, **il PNG e' la figura**, quindi
+  // l'angolo e' pieno per costruzione. A dire che il lazo ha morso e' il segno
+  // blu, che stava fuori dal contorno e nel risultato non c'e' piu'.
+  const contenuto = await page.evaluate(() => {
+    const src = window.game.scene.keys.GameScene.textures
+      .get('lazo')
+      .getSourceImage() as HTMLCanvasElement;
+    const d = src.getContext('2d')!.getImageData(0, 0, src.width, src.height).data;
+    let blu = 0;
+    let bordoVuoto = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3]! > 8 && d[i + 2]! > d[i]!) blu++;
+    // Il ritaglio al contenuto: la figura tocca tutti e quattro i bordi, quindi
+    // non esiste una riga o una colonna del PNG tutta trasparente.
+    for (let x = 0; x < src.width; x++) {
+      let piena = false;
+      for (let y = 0; y < src.height; y++) if (d[(y * src.width + x) * 4 + 3]! > 8) piena = true;
+      if (!piena) bordoVuoto++;
+    }
+    return { blu, bordoVuoto };
+  });
+  expect(contenuto.blu).toBe(0);
+  expect(contenuto.bordoVuoto).toBe(0);
 });
 
 test('con un lato grande l\'anteprima ci sta dentro invece di uscire dal bordo', async ({
