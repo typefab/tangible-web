@@ -299,13 +299,22 @@ dentro la pagina, quindi funziona anche dal telefono:
    riferimento e' quel colore soltanto, e il punto che hai toccato viene tolto
    anche se e' chiuso dentro la figura — il vuoto nel manico di una tazza. Il
    quadratino accanto mostra il colore preso; **↺** torna agli angoli.
-4. **Scegli il lato in pixel** — a mano o con le frecce **−** e **+**. E' solo
-   la **nitidezza**: il gioco riporta comunque ogni blocco alla larghezza della
-   cella, quindi un PNG piu' grande non fa un oggetto piu' grande.
-5. **Largo (celle)** e **Appoggio sulla cella** decidono quanto sara' grande
-   davvero e dove poggia. L'anteprima **"come starà sulla griglia"** te lo
-   mostra sul rombo mentre lo regoli.
-6. **✏️ Ritaglia a mano**, se serve:
+4. **🎯 Centra**, accanto all'anteprima "come starà sulla griglia". Apre la
+   stessa anteprima **in grande**, e li' dentro decidi come starà davvero:
+   - **trascina lo sprite col dito** dove lo vuoi sulla cella; **due dita** per
+     allargarlo e stringerlo;
+   - le **frecce** ↑ ↓ ← → rifiniscono un pelo per volta, e **⌖** lo rimette al
+     centro;
+   - **Largo (celle)** e' quanto sara' grande davvero in gioco, e **Lato in
+     pixel** e' solo la **nitidezza** — il gioco riporta comunque ogni blocco
+     alla larghezza della cella, quindi un PNG piu' grande non fa un oggetto
+     piu' grande. Stanno qui perche' si scelgono guardando questa immagine.
+
+   Alzare o abbassare lo sprite non gli cambia la dimensione. Spostarlo di lato
+   si', in un certo senso: il PNG deve allargarsi per fare posto al vuoto, e il
+   numero nel nome del file cresce con lui — ma **la figura resta larga quello
+   che hai scelto**, ed e' quello che conta.
+5. **✏️ Ritaglia a mano**, se serve:
    - **🩹 Gomma** cancella dove passi, **↩ Ripristina** riporta indietro;
    - **✂ Lazo** traccia un contorno e tiene **solo quello che ci sta dentro**: e'
      la via rapida per una sagoma complicata;
@@ -315,6 +324,13 @@ dentro la pagina, quindi funziona anche dal telefono:
 
    Il ritaglio **resta** anche se dopo cambi tolleranza o lato in pixel: non e'
    un'immagine congelata, e' una maschera che l'editor riapplica ogni volta.
+
+**Quello che tieni diventa lo sprite, da solo.** Se ritagli un pezzo che stava in
+un angolo della foto, il vuoto attorno non entra nel PNG: l'editor taglia ai
+bordi di quello che resta. Serve a due cose che si vedono subito — lo sprite
+esce **nitido**, perche' i pixel che hai chiesto vanno tutti alla figura invece
+che al vuoto, ed esce **centrato** sulla cella invece che spostato di quanto era
+spostato nella foto.
 
 Poi due pulsanti, e **fanno due cose diverse**:
 
@@ -366,8 +382,11 @@ appena committi il PNG.
 - **Cassetto degli sprite** diviso per categoria, con quelli gia' usati nel
   livello a portata; in basso restano gli **usati di recente**
 - **Sprite fatti da un'immagine, dentro il browser**: togli sfondo, riduci a
-  pixel-art, ritaglia a mano i bordi. Usabile subito nella sessione, permanente
-  quando committi il PNG
+  pixel-art, ritaglia a mano i bordi. Il PNG che esce **e' la figura**, non il
+  fotogramma: nitido e centrato anche se hai ritagliato da un angolo. Usabile
+  subito nella sessione, permanente quando committi il PNG
+- **🎯 Centra**: l'anteprima sulla cella in grande, dove si sposta lo sprite col
+  dito e si scelgono taglia e nitidezza guardando il risultato
 - **Layer** con nome, visibilita' e quota: si costruisce anche in verticale, e
   in gioco il tocco prende sempre il blocco piu' in alto
 - **Piu' livelli in un file solo**, con `?level=` in gioco. Nell'editor un

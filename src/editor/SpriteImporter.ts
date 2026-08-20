@@ -1,7 +1,6 @@
 import { isRuntimeBlock, resolveBlock } from '../assets/catalog';
-import { ISO } from '../config';
-import { projection } from '../grid/projection';
 import { MaskEditor } from './MaskEditor';
+import { CellPlacer, drawOnCell } from './CellPlacer';
 
 /**
  * L'editor d'immagine: da una foto qualsiasi a uno sprite pixel-art.
@@ -93,16 +92,31 @@ export class SpriteImporter {
   /** L'anteprima sulla cella: quanto sara' grande davvero, in gioco. */
   private cellPreview!: HTMLCanvasElement;
   private tagliaInput!: HTMLInputElement;
-  private anchorInput!: HTMLInputElement;
+  /** Il contenitore dei due stepper: la finestra "centra" se lo fa prestare. */
+  private misure!: HTMLDivElement;
+  private placeButton!: HTMLButtonElement;
+  private readonly placer = new CellPlacer({
+    sprite: () => this.result,
+    taglia: () => this.taglia,
+    setTaglia: (n) => {
+      this.tagliaInput.value = trimNumber(n);
+      this.taglia = n;
+      this.refreshCell();
+      this.refreshNameHints();
+    },
+  });
   /** Quante celle largo. Finisce nel nome del file come `@2`, non nell'id. */
   private taglia: number = TAGLIA.initial;
   /**
-   * Di quanto lo sprite sta piu' in alto del centro della cella, in frazione
-   * della sua altezza. **Non e' un metadato**: all'esportazione diventa spazio
-   * trasparente nel PNG, quindi non c'e' niente da tenere allineato e vale
-   * anche per chi apre il file senza sapere di questo pannello.
+   * Di quanto il centro della figura sta lontano dal centro della cella, in
+   * frazioni della figura stessa. **Non e' un metadato**: all'esportazione
+   * diventa spazio trasparente nel PNG, quindi non c'e' niente da tenere
+   * allineato e vale anche per chi apre il file senza sapere di questo pannello.
+   *
+   * Prima era un numero solo, verticale, e si chiamava appoggio. Due assi
+   * perche' su un telefono vero la posa non e' solo "quanto in alto".
    */
-  private anchor = 0;
+  private offset = { x: 0, y: 0 };
 
   /** Vero mentre si aspetta il tocco che indica lo sfondo. */
   private picking = false;
@@ -147,7 +161,11 @@ export class SpriteImporter {
    * la pila un gradino per volta invece di spazzare via tutto.
    */
   cancelTopmost(): boolean {
+    // L'ordine e' quello dei piani: la finestra "centra" apre sopra il pannello,
+    // e la matita sopra tutto. Chi aggiunge un pannello lo aggiunge anche qui,
+    // altrimenti l'indietro scavalca il suo e chiude quello sotto.
     if (this.maskEditor.cancel()) return true;
+    if (this.placer.cancel()) return true;
     if (!this.isOpen) return false;
     this.close();
     return true;
@@ -162,8 +180,7 @@ export class SpriteImporter {
     this.manualMask = null;
     this.taglia = TAGLIA.initial;
     this.tagliaInput.value = String(TAGLIA.initial);
-    this.anchor = 0;
-    this.anchorInput.value = '0';
+    this.offset = { x: 0, y: 0 };
     this.picking = false;
     this.picked = null;
     this.previewFit = null;
@@ -216,10 +233,22 @@ export class SpriteImporter {
     this.cellPreview.className = 'sulla-cella';
     this.cellPreview.width = 240;
     this.cellPreview.height = 170;
-    const didascalia = document.createElement('p');
-    didascalia.className = 'didascalia';
+    // Sotto l'anteprima, la sua riga: cosa si sta guardando e come metterci le
+    // mani. Il pulsante sta qui e non fra i comandi perche' agisce su **questa**
+    // immagine, e a portata dell'unica cosa che risponde alla stessa domanda.
+    const riga = document.createElement('div');
+    riga.className = 'didascalia';
+    const didascalia = document.createElement('span');
     didascalia.textContent = 'Come starà sulla griglia';
-    cella.append(this.cellPreview, didascalia);
+    this.placeButton = document.createElement('button');
+    this.placeButton.type = 'button';
+    this.placeButton.className = 'centra';
+    this.placeButton.textContent = '🎯 Centra';
+    this.placeButton.title =
+      'Apre l’anteprima in grande: sposta lo sprite col dito, e regola largo e lato in pixel';
+    this.placeButton.onclick = () => void this.place();
+    riga.append(didascalia, this.placeButton);
+    cella.append(this.cellPreview, riga);
     box.appendChild(cella);
 
     box.appendChild(this.controls());
@@ -308,33 +337,26 @@ export class SpriteImporter {
     pick.append(this.pickButton, this.pickSwatch, this.pickReset);
     wrap.appendChild(pick);
 
-    this.sizeInput = steppedNumber(wrap, 'Lato in pixel', SIZE, 'lato', () => this.recompute());
+    // Le due misure stanno insieme in un contenitore loro: la finestra "centra"
+    // se lo fa prestare tale e quale, invece di ricostruirsi due stepper con due
+    // gestori da tenere d'accordo. Quando si chiude, tornano qui.
+    this.misure = document.createElement('div');
+    this.misure.className = 'misure';
+    wrap.appendChild(this.misure);
+
+    this.sizeInput = steppedNumber(this.misure, 'Lato in pixel', SIZE, 'lato', () =>
+      this.recompute(),
+    );
 
     // Quanto e' largo rispetto al rombo. E' l'unica leva che cambia davvero la
     // dimensione in gioco: il lato in pixel e' solo nitidezza, perche' il gioco
     // riporta comunque ogni blocco alla larghezza della cella.
-    this.tagliaInput = steppedNumber(wrap, 'Largo (celle)', TAGLIA, 'taglia', () => {
+    this.tagliaInput = steppedNumber(this.misure, 'Largo (celle)', TAGLIA, 'taglia', () => {
       this.taglia = clampFloat(Number(this.tagliaInput.value), TAGLIA.min, TAGLIA.max);
       this.refreshCell();
       this.refreshNameHints();
+      this.placer.refreshIfOpen();
     });
-
-    // L'appoggio diventa spazio trasparente nel PNG, non un numero da salvare.
-    const app = document.createElement('label');
-    app.className = 'campo';
-    app.appendChild(document.createTextNode('Appoggio sulla cella'));
-    this.anchorInput = document.createElement('input');
-    this.anchorInput.type = 'range';
-    this.anchorInput.min = '-50';
-    this.anchorInput.max = '50';
-    this.anchorInput.value = '0';
-    this.anchorInput.oninput = () => {
-      this.anchor = Number(this.anchorInput.value) / 100;
-      this.refreshCell();
-      this.refreshNameHints();
-    };
-    app.appendChild(this.anchorInput);
-    wrap.appendChild(app);
 
     return wrap;
   }
@@ -342,84 +364,60 @@ export class SpriteImporter {
   // -------------------------------------------------- taglia e anteprima cella
 
   /**
-   * Il PNG che esce davvero: il risultato piu' lo spazio trasparente che
-   * realizza l'appoggio. Il gioco centra ogni sprite sul centro della cella,
-   * quindi aggiungere vuoto sotto lo alza e aggiungerne sopra lo abbassa —
-   * senza che nessuno debba ricordarsi un secondo numero.
+   * Il PNG che esce davvero: la figura piu' lo spazio trasparente che la mette
+   * dove la si e' messa.
+   *
+   * Il gioco centra ogni sprite sul centro della cella, quindi l'unico modo di
+   * farlo stare altrove e' aggiungere vuoto dalla parte opposta. Il vuoto va su
+   * **un lato solo**: cosi' il centro del PNG si sposta di quanto serve, e la
+   * figura resta intera invece di essere tagliata.
    */
   private exportCanvas(): HTMLCanvasElement | null {
     if (!this.result) return null;
-    const pad = Math.round(this.result.height * Math.abs(this.anchor));
-    if (pad === 0) return this.result;
+
+    const dx = Math.round(this.result.width * this.offset.x);
+    const dy = Math.round(this.result.height * this.offset.y);
+    if (dx === 0 && dy === 0) return this.result;
 
     const out = document.createElement('canvas');
-    out.width = this.result.width;
-    out.height = this.result.height + pad;
-    out.getContext('2d')!.drawImage(this.result, 0, this.anchor > 0 ? 0 : pad);
+    out.width = this.result.width + 2 * Math.abs(dx);
+    out.height = this.result.height + 2 * Math.abs(dy);
+    out.getContext('2d')!.drawImage(this.result, Math.abs(dx) + dx, Math.abs(dy) + dy);
     return out;
+  }
+
+  /**
+   * La taglia da scrivere nel nome del file: quella del **PNG**, non della
+   * figura.
+   *
+   * Sono lo stesso numero finche' lo sprite sta al centro, e li' non cambia
+   * niente. Spostandolo di lato il PNG diventa piu' largo della figura, e senza
+   * questo conto la figura si rimpicciolirebbe da sola man mano che la si
+   * sposta — cioe' posizionare costerebbe dimensione. `Largo (celle)` resta
+   * quanto e' larga **la figura**, che e' la cosa che si sta guardando.
+   */
+  private exportTaglia(): number {
+    const out = this.exportCanvas();
+    if (!out || !this.result) return this.taglia;
+    const n = (this.taglia * out.width) / this.result.width;
+    return clampFloat(Math.round(n * 100) / 100, TAGLIA.min, TAGLIA.max);
   }
 
   /** Il nome del file: `id@taglia.png`, senza suffisso quando e' largo una cella. */
   private fileName(id: string): string {
-    return this.taglia === 1 ? `${id}.png` : `${id}@${trimNumber(this.taglia)}.png`;
-  }
-
-  private refreshCell(): void {
-    const shown = this.exportCanvas();
-    if (shown) this.drawCell(shown);
+    const taglia = this.exportTaglia();
+    return taglia === 1 ? `${id}.png` : `${id}@${trimNumber(taglia)}.png`;
   }
 
   /**
-   * Disegna la cella e lo sprite sopra, con le stesse proporzioni del gioco.
-   *
-   * **Il rombo viene da `projection.cellOutline`**, non ridisegnato qui: se un
-   * giorno la proiezione cambia, questa anteprima cambia con lei invece di
-   * diventare una bugia. E' la stessa ragione per cui l'editor disegna
-   * attraverso la scena.
+   * L'anteprima piccola disegna la **figura** con la sua posa, non il PNG con
+   * lo spazio attorno: sono la stessa immagine — il vuoto e' quello che sposta
+   * il PNG — e cosi' passa per lo stesso disegno della finestra grande.
    */
-  private drawCell(sprite: HTMLCanvasElement): void {
-    const ctx = this.cellPreview.getContext('2d')!;
-    const { width: W, height: H } = this.cellPreview;
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#1b1b22';
-    ctx.fillRect(0, 0, W, H);
-
-    // Quanto sara' grande in gioco, in unita' di mondo: la larghezza la decide
-    // la taglia, l'altezza segue le proporzioni dell'immagine.
-    const dw = ISO.tileWidth * this.taglia;
-    const dh = sprite.height * (dw / sprite.width);
-
-    // Zoom che fa stare dentro sia le celle attorno sia lo sprite.
-    const spanX = Math.max(dw, ISO.tileWidth * 3.2);
-    const spanY = Math.max(dh, ISO.tileHeight * 3.2) + ISO.tileHeight * 2;
-    const k = Math.min(W / spanX, H / spanY);
-
-    const center = projection.cellToWorld(0, 0);
-    const cx = W / 2;
-    const cy = H * 0.62;
-    const toScreen = (q: { x: number; y: number }) => ({
-      x: cx + (q.x - center.x) * k,
-      y: cy + (q.y - center.y) * k,
-    });
-
-    for (let row = -1; row <= 1; row++) {
-      for (let col = -1; col <= 1; col++) {
-        const pts = projection.cellOutline(col, row).map(toScreen);
-        ctx.beginPath();
-        ctx.moveTo(pts[0]!.x, pts[0]!.y);
-        for (const q of pts.slice(1)) ctx.lineTo(q.x, q.y);
-        ctx.closePath();
-        const centrale = col === 0 && row === 0;
-        ctx.fillStyle = centrale ? '#2f2f3d' : '#23232c';
-        ctx.fill();
-        ctx.strokeStyle = centrale ? '#ffd166' : '#3a3a48';
-        ctx.lineWidth = centrale ? 2 : 1;
-        ctx.stroke();
-      }
+  private refreshCell(): void {
+    if (this.result) {
+      drawOnCell(this.cellPreview, this.result, { taglia: this.taglia, offset: this.offset });
     }
-
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sprite, cx - (dw * k) / 2, cy - (dh * k) / 2, dw * k, dh * k);
   }
 
   // ------------------------------------------------------------ contagocce
@@ -495,7 +493,21 @@ export class SpriteImporter {
     }
   }
 
-  /** Rifa' la pipeline dalla sorgente: togli sfondo, poi riduci a pixel-art. */
+  /**
+   * Rifa' la pipeline dalla sorgente: togli sfondo, ritaglia al contenuto, poi
+   * riduci a pixel-art.
+   *
+   * **Il ritaglio ai bordi del contenuto e' il passo che mancava**, e ne
+   * mancavano due cose insieme. Riducendo tutto il fotogramma, di un lato da
+   * 128px alla figura ne arrivavano 35 se occupava un settimo dell'immagine:
+   * la nitidezza chiesta finiva quasi tutta nel vuoto attorno. E la figura
+   * restava dove stava nella foto, mentre il gioco centra sulla cella **il
+   * PNG** — quindi una figura ritagliata da un angolo si vedeva in un angolo,
+   * e ingrandendo se ne andava fuori del tutto.
+   *
+   * Ritagliando prima di ridurre, il PNG **e'** la figura: nitida quanto si e'
+   * chiesto e centrata per costruzione, non per fortuna del fotogramma.
+   */
   private recompute(): void {
     if (!this.source) return;
 
@@ -505,13 +517,19 @@ export class SpriteImporter {
     // Gli estremi sono quelli dello stepper: erano cablati a 256, e un lato piu'
     // grande scelto con le frecce veniva zitto zitto dimezzato.
     const side = clampInt(Number(this.sizeInput.value), SIZE.min, SIZE.max);
-    this.result = pixelate(work, side);
-    // Col contagocce armato l'anteprima mostra i colori veri, senza il ritaglio:
-    // se lo sfondo e' stato tolto male non ci sarebbe piu' niente da indicare.
+    this.result = pixelate(trimTransparent(work), side);
+    // Col contagocce armato l'anteprima mostra i colori veri, **senza** ritaglio
+    // ne' bordi tolti: se lo sfondo e' stato tolto male non ci sarebbe piu'
+    // niente da indicare. `pickFromPreview` conta su questo per riportare un
+    // tocco fino al pixel della sorgente — mostrargli il ritagliato lo
+    // farebbe sbagliare punto.
     this.drawPreview(this.picking ? pixelate(this.source, side) : this.result);
     this.refreshCell();
     this.refreshPicker();
     this.refreshNameHints();
+    // Cambiare il lato in pixel da dentro la finestra rifa' lo sprite: se non
+    // si ridisegnasse, li' resterebbe quello di prima.
+    this.placer.refreshIfOpen();
     this.setReady(true);
   }
 
@@ -580,7 +598,7 @@ export class SpriteImporter {
       id,
       label: this.nameInput.value.trim() || id,
       category,
-      scale: this.taglia,
+      scale: this.exportTaglia(),
       canvas: uscita,
       dataUrl: uscita.toDataURL('image/png'),
     });
@@ -607,6 +625,24 @@ export class SpriteImporter {
     return work;
   }
 
+  /**
+   * Apre l'anteprima in grande e ci lascia posizionare lo sprite.
+   *
+   * Lo scarto si applica **mentre** si trascina, cosi' l'anteprima piccola
+   * dietro dice gia' la verita'; annullando si rimette quello di prima. Taglia
+   * e lato in pixel invece restano come li si e' lasciati: sono dell'importer,
+   * e la finestra e' solo il posto piu' comodo da cui toccarli.
+   */
+  private async place(): Promise<void> {
+    if (!this.result) return;
+
+    const prima = { ...this.offset };
+    const scelto = await this.placer.open(this.misure, this.offset, TAGLIA);
+    this.offset = scelto ?? prima;
+    this.refreshCell();
+    this.refreshNameHints();
+  }
+
   private async crop(): Promise<void> {
     if (!this.source) return;
     const mask = await this.maskEditor.open(this.processedSource(), this.manualMask);
@@ -620,6 +656,7 @@ export class SpriteImporter {
   private setReady(ready: boolean): void {
     this.addButton.disabled = !ready;
     this.cropButton.disabled = !ready;
+    this.placeButton.disabled = !ready;
     this.downloadLink.classList.toggle('disabled', !ready);
   }
 
@@ -662,7 +699,16 @@ export class SpriteImporter {
         width: 240px; max-width: 100%; height: auto;
         border-radius: 8px; border: 1px solid #3a3a48; image-rendering: pixelated;
       }
-      #sprite-importer .didascalia { margin: 0; font-size: 11px; opacity: .6; }
+      /* La riga sotto l'anteprima: cosa si sta guardando, e il pulsante per
+         metterci le mani. In fila perche' sono la stessa cosa. */
+      #sprite-importer .didascalia {
+        margin: 0; font-size: 11px; opacity: .6;
+        display: flex; align-items: center; gap: 8px;
+      }
+      #sprite-importer .didascalia .centra { font-size: 13px; opacity: 1; min-height: 36px; align-self: auto; }
+      /* I due stepper stanno insieme perche' insieme se li fa prestare la
+         finestra "centra": e' un contenitore, non un raggruppamento estetico. */
+      #sprite-importer .misure { display: flex; flex-direction: column; gap: 8px; }
       #sprite-importer .pescasfondo { display: flex; gap: 6px; align-items: center; }
       #sprite-importer .contagocce {
         flex: 1 1 auto; min-height: 38px; padding: 0 12px; border-radius: 8px;
@@ -696,13 +742,18 @@ export class SpriteImporter {
         cursor: pointer; touch-action: manipulation;
       }
       #sprite-importer .stepper .freccia:hover { background: #3a3a48; }
-      #sprite-importer .ritaglia {
+      /* Stessa pelle per i due pulsanti che aprono una finestra: senza, quello
+         nuovo prendeva il grigio chiaro di serie del browser e sembrava di
+         un'altra applicazione. */
+      #sprite-importer .ritaglia, #sprite-importer .didascalia .centra {
         min-height: 42px; padding: 0 14px; border-radius: 8px; align-self: stretch;
         border: 1px solid #3a3a48; background: #2f2f3d; color: #e8e8ef;
         font: inherit; cursor: pointer; touch-action: manipulation;
       }
-      #sprite-importer .ritaglia:hover:not(:disabled) { background: #3a3a48; }
-      #sprite-importer .ritaglia:disabled { opacity: .35; cursor: default; }
+      #sprite-importer .ritaglia:hover:not(:disabled),
+      #sprite-importer .didascalia .centra:hover:not(:disabled) { background: #3a3a48; }
+      #sprite-importer .ritaglia:disabled,
+      #sprite-importer .didascalia .centra:disabled { opacity: .35; cursor: default; }
       #sprite-importer .note { margin: 0; font-size: 12px; opacity: .7; min-height: 2.4em; }
       #sprite-importer .actions { display: flex; gap: 8px; flex-wrap: wrap; }
       #sprite-importer .actions button, #sprite-importer .actions a {
@@ -927,6 +978,43 @@ function applyMask(canvas: HTMLCanvasElement, mask: Uint8Array): void {
  * campionamento netto: e' quello che le da' l'aspetto a pixel. La trasparenza
  * passa, cosi' lo sfondo tolto resta tolto.
  */
+/**
+ * Ritaglia ai bordi di cio' che non e' trasparente.
+ *
+ * E' quello che rende vero "il PNG e' la figura": senza, il vuoto attorno si
+ * porta via la nitidezza — viene ridotto anche lui — e sposta la figura rispetto
+ * al centro del PNG, che e' il punto che il gioco appoggia sulla cella.
+ *
+ * La soglia e' bassa e non zero: dopo il flood-fill restano spesso pixel quasi
+ * trasparenti sul bordo, e prenderli per contenuto vorrebbe dire non ritagliare
+ * niente. Un'immagine tutta trasparente torna com'era: meglio un PNG vuoto che
+ * un canvas largo zero, che non si puo' nemmeno disegnare.
+ */
+function trimTransparent(src: HTMLCanvasElement, soglia = 8): HTMLCanvasElement {
+  const d = src.getContext('2d')!.getImageData(0, 0, src.width, src.height).data;
+  let minX = src.width;
+  let minY = src.height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < src.height; y++) {
+    for (let x = 0; x < src.width; x++) {
+      if (d[(y * src.width + x) * 4 + 3]! <= soglia) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < 0) return src;
+
+  const out = document.createElement('canvas');
+  out.width = maxX - minX + 1;
+  out.height = maxY - minY + 1;
+  out.getContext('2d')!.drawImage(src, -minX, -minY);
+  return out;
+}
+
 function pixelate(src: HTMLCanvasElement, side: number): HTMLCanvasElement {
   const scale = side / Math.max(src.width, src.height);
   const w = Math.max(1, Math.round(src.width * scale));

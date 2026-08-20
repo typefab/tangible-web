@@ -80,6 +80,16 @@ conversazione, non una modifica.
   Il campo **non compare quando vale 1**, come `rotation` sui fondali, e viaggia
   col blocco — spostamento, appunti, contagocce: una proprieta' che si perde
   toccando le cose e' peggio che non averla.
+- **Uno sprite importato e' la figura, non il fotogramma.** `trimTransparent`
+  sta fra la maschera e la riduzione, e quell'ordine e' il punto: prima della
+  riduzione, cosi' i pixel chiesti vanno tutti alla figura invece che al vuoto;
+  dopo la maschera, cosi' segue anche il ritaglio fatto a mano. Spostarlo
+  altrove riporta gli sprite molli e fuori cella da cui e' nato.
+- **La posa sulla cella non e' un metadato**, come non lo era l'appoggio: allo
+  scarico diventa spazio trasparente su un lato del PNG. E siccome il gioco
+  centra il **PNG**, spostare di lato allarga il file — percio' `Largo (celle)`
+  e' quanto e' larga *la figura* e il numero nel nome e' quello del PNG,
+  calcolato. Senza quel conto, posizionare rimpicciolirebbe.
 - **Uno sprite fatto nell'editor d'immagine non e' nel repository.**
   `registerRuntimeBlock()` lo rende piazzabile subito e l'autosave lo conserva
   in questo browser, ma resta un elenco separato dai `BLOCKS` di build apposta:

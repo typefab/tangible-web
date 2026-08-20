@@ -667,6 +667,90 @@ del file tornerebbe alla ricarica e quello di sessione no, e la confusione
 sarebbe garantita. Rifare un import con lo stesso nome di un altro import,
 invece, si puo': li' sostituire e' esattamente cio' che si intende.
 
+### Il PNG e' la figura, non il fotogramma
+
+Provato su un telefono vero, ed e' il difetto che ha ripagato la prova. Ritagli
+una parte di una foto, quella parte sta fuori dal centro, e sulla cella esce
+**molle e spostata** — tanto piu' spostata quanto piu' la ingrandisci, fino a
+uscire del tutto dalla sua cella.
+
+Sembravano due difetti e la radice era una sola: `pixelate` riduceva **tutto il
+fotogramma**, non la figura. Misurato sul caso di prova, una figura in un angolo
+di una foto quadrata:
+
+| | prima | dopo |
+|---|---|---|
+| PNG | 128x128 | 108x128 |
+| figura dentro | 35x41, il **7%** | 108x128, il **76%** |
+| centro figura / centro PNG | (35,33) / (64,64) | coincidono |
+
+Da qui tutte e due le facce. Dei 128 pixel di nitidezza chiesti alla figura ne
+arrivavano trentacinque, e il resto andava a descrivere del vuoto: ecco il
+"fuori fuoco". E il gioco appoggia sulla cella il **centro del PNG**, non quello
+della figura, quindi una figura ritagliata da un angolo si vedeva in un angolo;
+ingrandendo, quello scarto veniva moltiplicato insieme al resto.
+
+Il rimedio e' un passo in mezzo alla pipeline — `trimTransparent`, fra la
+maschera e la riduzione — e vale la pena dire perche' sta **li'**: prima della
+riduzione, cosi' i pixel chiesti vanno tutti alla figura; dopo la maschera, cosi'
+segue anche il ritaglio fatto a mano invece del solo flood-fill. Il PNG diventa
+la figura, e "centrato" smette di essere una fortuna dell'inquadratura.
+
+Ha un prezzo dichiarato: **il vuoto attorno non e' piu' un modo di rimpicciolire
+uno sprite**. Chi inquadrava largo per ottenere un oggetto piccolo nella cella
+ora si trova la figura che riempie la cella, e per rimpicciolirla usa `Largo
+(celle)` — che e' esplicito, mentre l'altro modo era un effetto collaterale
+dell'inquadratura.
+
+Tre test lo hanno seguito, e come sono cambiati e' la parte interessante:
+guardavano tutti **un angolo del PNG**, aspettandosi vuoto. Con il ritaglio
+quell'angolo e' figura, ed e' giusto che lo sia. Ognuno e' stato riscritto
+attorno a cio' che intendeva davvero — nessun bianco opaco rimasto, nessuna
+colonna vuota, il segno blu fuori dal lazo che non c'e' piu' — che sono
+asserzioni piu' vicine all'intenzione di quanto fosse un pixel a coordinate
+fisse.
+
+### Centrare con le dita, non con uno slider
+
+Il ritaglio al contenuto mette la figura al centro per costruzione, ma "al
+centro" non e' sempre dove la si vuole: un oggetto appoggiato poggia piu' in
+basso, uno appeso sta piu' in alto. C'era gia' un comando per questo — lo slider
+"Appoggio sulla cella" — e la prova col dito ha detto che non bastava: si regola
+un numero e si verifica in un'anteprima di 240x170, che su un telefono e' un
+francobollo.
+
+Quindi **🎯 Centra**: la stessa anteprima in grande, dove lo sprite si trascina
+col dito, due dita lo allargano, quattro frecce lo rifiniscono e ⌖ lo rimette al
+centro. Lo slider e' sparito, e con lui un concetto: non c'e' piu' un "appoggio"
+da capire, c'e' dove lo metti.
+
+Tre decisioni che tengono in piedi il resto:
+
+- **la finestra non possiede taglia e nitidezza: se le fa prestare.** `Largo
+  (celle)` e `Lato in pixel` sono gli **stessi due elementi** del pannello,
+  spostati dentro la finestra all'apertura e restituiti alla chiusura.
+  Ricostruirli avrebbe voluto dire due widget con due gestori da tenere
+  d'accordo, e la prima cosa che diverge e' il passo. Stanno li' perche' sono le
+  domande che ci si fa guardando **quella** immagine.
+- **il disegno della cella e' uno solo**, in `CellPlacer.drawOnCell`, e lo usano
+  tutte e due le anteprime. Erano il candidato ideale per due implementazioni
+  della stessa geometria da tenere allineate a mano — esattamente cio' che
+  l'editor evita disegnando attraverso la scena.
+- **lo scarto non e' un metadato**: all'esportazione diventa spazio trasparente
+  su un lato del PNG, come faceva l'appoggio. E' la stessa regola di sempre —
+  cio' che si vede sta nel file, non in un numero che qualcuno deve tenere
+  allineato.
+
+**Spostare di lato costa, e il conto lo fa l'editor.** Il gioco centra il PNG
+sulla cella, quindi l'unico modo di far stare la figura altrove e' del vuoto
+dalla parte opposta: il PNG diventa piu' largo della figura. Senza fare niente,
+la figura si rimpicciolirebbe da sola man mano che la si sposta — posizionare
+costerebbe dimensione. Percio' `Largo (celle)` resta **quanto e' larga la
+figura**, e il numero scritto nel nome del file e' quello del **PNG**, calcolato:
+`albero@1.8.png` per un albero largo una cella spostato di mezza figura. In
+verticale non succede niente, perche' il vuoto sopra e sotto non cambia la
+larghezza — ed e' il caso normale.
+
 ### Indietro non vuol dire uscire
 
 Sul telefono indietro e' il gesto con cui si chiude qualcosa: un pannello, una
@@ -916,7 +1000,9 @@ pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 | Cassetto degli sprite | `editor/SpriteDrawer.ts` | catalogo per categoria e usati nel livello; in basso restano i recenti |
 | Editor d'immagine | `editor/SpriteImporter.ts` | togli sfondo, pixel-art, sprite di sessione + PNG da committare |
 | Ritaglio a mano | `editor/MaskEditor.ts` | gomma e ripristino sui pixel finali, con zoom e annulla per tratto |
-| Test | `test/`, `playwright.config.ts` | 125 test sul gioco che gira, in CI a ogni push |
+| Il PNG e' la figura | `editor/SpriteImporter.ts` | `trimTransparent` fra maschera e riduzione: nitido e centrato anche ritagliando da un angolo |
+| Posa sulla cella | `editor/CellPlacer.ts` | anteprima in grande, si trascina col dito; ospita taglia e nitidezza |
+| Test | `test/`, `playwright.config.ts` | 132 test sul gioco che gira, in CI a ogni push |
 | Istruzioni | `CLAUDE.md` | confini fra sessioni e invarianti da non rompere |
 
 Test principali superati:
@@ -958,6 +1044,17 @@ Test principali superati:
   commit diventa `blocco_largo@2.png` e in scena quel blocco e' **largo il
   doppio** di uno normale; l'anteprima disegna la cella e ci mette sopra lo
   sprite
+- il PNG che e' la figura, sul caso storto vero — una figura piccola in un
+  angolo di una foto: i pixel opachi passano dal 7% al **76%** del PNG, il lato
+  lungo torna a essere quello chiesto, e il centro della figura coincide con
+  quello del PNG invece di stargli a un quarto di distanza; un PNG di una foto
+  quadrata prende le **proporzioni della figura**, non della foto
+- la finestra "centra": si apre, **ospita** i due stepper — sono gli stessi
+  elementi, non due copie, e alla chiusura tornano nel pannello — trascinare
+  sposta lo sprite e ⌖ lo rimette al centro; **Annulla non lascia applicato**
+  niente di cio' che si stava provando; alzarlo non cambia il nome del file,
+  spostarlo di lato si' e la taglia scritta cresce; il tasto indietro chiude la
+  finestra e **non** il pannello sotto
 - la scala del blocco: col pennello a `2×` il blocco piazzato e' **largo il
   doppio** di uno normale, e nel file porta `"scale": 2` mentre gli altri
   restano `{col,row,type}` e basta; `serialize -> load -> serialize` non cambia
@@ -1106,6 +1203,11 @@ Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
   impiantata lo dira' solo la prossima volta che si impianta — cioe' si spera
   mai. Restano appese le tre run del 19 agosto: nessuno le ha cancellate, e non
   si cancellano da sole.
+- **La prova col dito e' cominciata, e non e' finita.** Fabrizio ha usato
+  l'editor su un telefono vero: ne e' uscito il difetto del PNG che non era la
+  figura, corretto. Restano da provare con una mano tutto il resto — i gesti
+  della scena, la selezione, e la finestra "centra" stessa, che e' nata da
+  quella prova ma e' stata verificata col protocollo.
 - **La scala del blocco e' stata guardata, non toccata.** I gradini, il numero
   che cambia mestiere con la selezione e l'ingombro della barra sono misurati
   sull'editor che gira e in uno screenshot a 390x780; quanto siano comodi da
@@ -1149,6 +1251,7 @@ src/editor/
   SpriteDrawer.ts   il cassetto: catalogo per categoria e usati nel livello
   SpriteImporter.ts da un'immagine a uno sprite: sfondo, taglia, anteprima
   MaskEditor.ts     la matita: gomma, ripristino, lazo; produce una maschera
+  CellPlacer.ts     la finestra "centra": lo sprite sulla cella, col dito
   SelectionTool.ts  la selezione come area di celle
   LevelBrowser.ts   il catalogo dei livelli, con ricerca
   CameraGestures.ts pan e pinch a due dita
@@ -1183,7 +1286,7 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 3. ~~Selezione e spostamento di aree~~
 4. ~~Salvataggio locale e apertura di un file~~
 5. ~~Pinch-zoom~~ — insieme al pan a due dita
-6. ~~Test automatici~~ — oggi 125, in CI a ogni push
+6. ~~Test automatici~~ — oggi 132, in CI a ogni push
 7. ~~Copia e incolla della selezione~~ — anche fra schede
 8. ~~Produrre il primo APK~~ — 6,5 MB negli Artifacts, mai installato
 9. ~~Cassetto degli sprite per categoria~~ — catalogo diviso per cartella, e in
@@ -1202,10 +1305,12 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 
 ### Da riprendere, in ordine
 
-15. **Provare l'editor con un dito vero.** Resta il buco piu' grande: gesti,
-    selezione e dimensione dei pulsanti sono tarati su un viewport, non su una
-    mano. Il ritaglio e' stato provato da Fabrizio e va; il pizzico dentro la
-    matita no.
+15. **Finire di provare l'editor con un dito vero.** La prima prova c'e' stata,
+    e ha ripagato subito: ne e' uscito il PNG che non era la figura — sprite
+    molli e fuori dalla loro cella — e la finestra "centra" che ne e' il rimedio.
+    Restano da provare con una mano i gesti della scena, la selezione, il pizzico
+    dentro la matita, e la finestra nuova, che e' nata da quella prova ma
+    verificata col protocollo.
 16. **Percorrere il giro completo di uno sprite importato**: scarica, commit,
     deploy, e ritrovarlo come blocco di build. E' l'unica prova che l'ibrido
     chiude il cerchio.

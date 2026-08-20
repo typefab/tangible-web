@@ -99,21 +99,34 @@ test('togliere lo sfondo rende trasparenti gli angoli e tiene la figura', async 
     .poll(() => page.evaluate(() => window.game.scene.keys.GameScene.textures.exists('prova_rossa')))
     .toBe(true);
 
-  // Si legge la texture di sessione: angolo trasparente, centro opaco e rosso.
+  // Si legge la texture di sessione. Il bianco attorno non c'e' piu' in due
+  // sensi: e' diventato trasparente, e poi il ritaglio ai bordi del contenuto
+  // l'ha tolto di mezzo — quindi **il PNG e' il quadrato rosso**. E' per questo
+  // che non si guarda l'angolo: li' adesso c'e' la figura, ed e' giusto cosi'.
   const campioni = await page.evaluate(() => {
     const tex = window.game.scene.keys.GameScene.textures.get('prova_rossa');
     const src = tex.getSourceImage() as HTMLCanvasElement;
     const x = src.getContext('2d')!;
     const w = src.width;
     const h = src.height;
-    const angolo = x.getImageData(0, 0, 1, 1).data;
     const centro = x.getImageData((w / 2) | 0, (h / 2) | 0, 1, 1).data;
-    return { angoloAlpha: angolo[3], centro: [...centro] };
+    // Quante colonne del PNG sono tutte trasparenti: dopo il ritaglio, nessuna.
+    let vuote = 0;
+    for (let cx = 0; cx < w; cx++) {
+      const col = x.getImageData(cx, 0, 1, h).data;
+      let piena = false;
+      for (let cy = 0; cy < h; cy++) if (col[cy * 4 + 3]! > 8) piena = true;
+      if (!piena) vuote++;
+    }
+    return { centro: [...centro], vuote, quadrato: Math.abs(w - h) <= 1 };
   });
 
-  expect(campioni.angoloAlpha).toBe(0);
   // Rosso vero al centro: R alto, G e B bassi, e opaco.
   expect(campioni.centro[3]).toBeGreaterThan(0);
   expect(campioni.centro[0]).toBeGreaterThan(150);
   expect(campioni.centro[1]).toBeLessThan(100);
+  // Il bianco attorno e' sparito del tutto: nessuna colonna vuota, e il PNG ha
+  // ripreso le proporzioni del quadrato rosso invece di quelle della foto.
+  expect(campioni.vuote).toBe(0);
+  expect(campioni.quadrato).toBe(true);
 });
