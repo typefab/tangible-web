@@ -239,6 +239,13 @@ Il file scaricato va caricato in `public/level.json` dalla UI web di GitHub
 in fondo alla pagina). Finche' non fai questo, il lavoro sta solo sul tuo
 telefono: **💾 Salva non basta a farlo vedere nel gioco.**
 
+**Gli sprite si salvano a parte, e allo stesso modo.** Un livello sta in
+`level.json`, uno sprite fatto con 🎨 e' un PNG per conto suo: si scarica con
+**Scarica PNG** dal pannello dell'importer e si carica in
+`src/assets/blocks/<categoria>/` — il percorso esatto, col nome giusto, te lo
+scrive il pannello. Vale la stessa regola: **Aggiungi al livello** lo rende
+piazzabile qui e ora, il commit lo rende vero per tutti.
+
 In editor non c'e' il personaggio: si costruisce ovunque, senza il vincolo di
 portata.
 

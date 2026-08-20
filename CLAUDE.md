@@ -42,6 +42,12 @@ aspettati che qualcun altro li stia guardando.
 `public/assets/` e' l'archivio del vecchio progetto GDevelop, 51 PNG che non usa
 nessuno. Non aggiungerci niente e non cancellarli senza chiedere.
 
+`src/editor/vendor/tilemap-editor/` **non e' codice nostro e non gira**: e' la
+copia di un editor altrui che era stato adottato e poi scartato prima di
+scrivere una riga. Nessuno lo importa, quindi non entra nemmeno nel sito. Sta
+li' da consultare — perche' non usarlo sta in `MODIFICHE.md`, dentro la
+cartella. Vale la regola di `public/assets/`: non si cancella senza chiedere.
+
 ## Invarianti da non rompere
 
 Sono le decisioni che reggono il resto. Se una ti sembra da cambiare, e' una

@@ -1182,12 +1182,38 @@ origini sconosciute, perche' e' un APK debug non firmato.
 Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
 `npx cap add android` genera un progetto minimo e il runner ha gia' l'SDK.
 
+### L'editor e' stato usato con le dita — 20 agosto 2026
+
+Cade il punto aperto piu' vecchio del progetto dopo "il gioco e' stato visto
+girare": per mesi la riga in questo documento diceva che il tocco non era **mai**
+stato provato su un telefono vero. Ora lo e' stato, e ha ripagato alla prima
+passata.
+
+Cosa ne e' uscito, in un giro solo: importi una foto, ne ritagli una parte che
+sta fuori dal centro, e sulla cella arriva molle e spostata — fino a uscire dalla
+cella quando la ingrandisci. Nessun test lo diceva, e nessuno dei 132 sarebbe
+arrivato a dirlo: guardavano tutti il PNG prodotto, e il PNG era *giusto* — era
+la pipeline a spendere la nitidezza sul vuoto attorno. A vederlo e' stato un
+dito, come per i due difetti dell'8 agosto.
+
+Corretto (`trimTransparent`) e ricontrollato dalla stessa mano: **funziona**. Ed
+e' nata da li' anche la finestra "centra", che era una richiesta e non un difetto
+— chi usa lo strumento sa cosa gli manca meglio di chi lo scrive.
+
+La morale e' la stessa dell'8 agosto, e vale la pena scriverla due volte perche'
+e' costata due volte: **una suite verde non e' una prova d'uso.** I test dicono
+che il codice fa quello che gli si e' chiesto; se la cosa chiesta era sbagliata,
+restano verdi.
+
 ### Non verificato
 
-- **Il tocco su un telefono vero** resta il buco principale (vedi sotto).
-- **Il tocco non e' mai stato provato su un telefono vero**, solo su un viewport
-  da 390x780 con il mouse — e i test toccano lo schermo via protocollo, che non
-  e' la stessa cosa di un dito.
+- **Il tocco su un telefono vero: cominciato, non finito.** Quello che una mano
+  ha davvero toccato e' la strada dell'importer — ritaglio, "centra",
+  trascinamento dello sprite — e li' funziona. Restano da provare col dito i
+  gesti della scena (due dita per spostarsi e ingrandire, la selezione ad area,
+  il tocco lungo del contagocce), il pizzico dentro la matita, i due pulsanti
+  della taglia in barra, e il pizzico dentro "centra" stessa: quello e' l'unico
+  gesto della finestra nuova che nessuno ha confermato.
 - **L'APK non e' mai stato installato**: e' stato prodotto, non provato.
 - **Il flood-fill non e' mai stato provato su una foto vera.** I test lo
   inchiodano su immagini sintetiche — sfondo pieno, figura netta — cioe' il caso
@@ -1201,13 +1227,9 @@ Il build APK ci mette due minuti, non i dieci che ci si aspetterebbe da Gradle:
 - **Il tetto di `test.yml` non e' ancora scattato.** La cache si': provata su
   due run di fila, la seconda la ritrova. Che il timeout tronchi davvero una run
   impiantata lo dira' solo la prossima volta che si impianta — cioe' si spera
-  mai. Restano appese le tre run del 19 agosto: nessuno le ha cancellate, e non
-  si cancellano da sole.
-- **La prova col dito e' cominciata, e non e' finita.** Fabrizio ha usato
-  l'editor su un telefono vero: ne e' uscito il difetto del PNG che non era la
-  figura, corretto. Restano da provare con una mano tutto il resto — i gesti
-  della scena, la selezione, e la finestra "centra" stessa, che e' nata da
-  quella prova ma e' stata verificata col protocollo.
+  mai. Le tre run appese del 19 agosto sono state cancellate a mano il 20: erano
+  ancora li' dopo ventotto ore, che e' la prova che una run impiantata non si
+  sblocca da sola.
 - **La scala del blocco e' stata guardata, non toccata.** I gradini, il numero
   che cambia mestiere con la selezione e l'ingombro della barra sono misurati
   sull'editor che gira e in uno screenshot a 390x780; quanto siano comodi da
@@ -1258,6 +1280,9 @@ src/editor/
   EditorStorage.ts  autosave e Salva, sprite di sessione compresi
   BackGuard.ts      il tasto indietro: chiude un pannello, poi chiede
   dialog.ts         la finestrella di scelta
+src/editor/vendor/
+  tilemap-editor/  <- copia di un editor altrui, adottato e poi scartato:
+                      consultazione, non codice che gira. Vedi MODIFICHE.md
 public/
   level.json     <- prodotto dall'editor
   assets/        <- archivio del progetto GDevelop, non usato dal codice
@@ -1305,12 +1330,11 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 
 ### Da riprendere, in ordine
 
-15. **Finire di provare l'editor con un dito vero.** La prima prova c'e' stata,
-    e ha ripagato subito: ne e' uscito il PNG che non era la figura — sprite
-    molli e fuori dalla loro cella — e la finestra "centra" che ne e' il rimedio.
-    Restano da provare con una mano i gesti della scena, la selezione, il pizzico
-    dentro la matita, e la finestra nuova, che e' nata da quella prova ma
-    verificata col protocollo.
+15. **Finire di provare l'editor con un dito vero.** La strada dell'importer e'
+    stata percorsa e va; restano i gesti della scena — due dita, selezione ad
+    area, tocco lungo — il pizzico dentro la matita e quello dentro "centra". La
+    prima passata ha reso un difetto grosso al primo giro: le altre conviene
+    farle.
 16. **Percorrere il giro completo di uno sprite importato**: scarica, commit,
     deploy, e ritrovarlo come blocco di build. E' l'unica prova che l'ibrido
     chiude il cerchio.
@@ -1328,7 +1352,8 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | **Il player e' minuscolo** | Visto a schermo: 26x64px su celle da 64x32, e' una macchiolina. La proporzione `317/788` dello sprite sorgente e' rispettata, ma l'altezza scelta (2 celle) e' troppo poca. Da ritarare guardando, ora che si puo' |
 | Quota e altezza dello sprite scollegate | Un passo di quota vale `tileHeight` (32px), ma gli sprite dei blocchi sono piu' alti della cella. Su arte isometrica vera i due numeri devono coincidere, altrimenti restano fessure o sovrapposizioni |
 | Il sito e' pubblico, e con lui gli sprite | Un gioco web manda le immagini al browser che lo gioca: "sprite privati" e "link pubblico" non possono essere veri insieme. Se serve riservatezza, l'unica leva e' chi puo' aprire la pagina |
-| 51 PNG inutilizzati nel deploy | Archivio in `public/assets/`. Da togliere quando Fabrizio conferma |
+| 51 PNG inutilizzati nel deploy | Archivio in `public/assets/`. Verificato: `public/` viene copiata tale e quale, quindi quei file **sono** nel sito. Da togliere quando Fabrizio conferma |
+| L'editor tilemap copiato non lo apre nessuno | 92 KB di codice altrui in `src/editor/vendor/`, adottato e poi scartato prima di scrivere una riga. **Non pesa sul sito**: nessuno lo importa, quindi Vite non lo mette nel bundle — verificato cercandolo in `dist/`. Pesa sulla lettura, che e' il motivo per cui `MODIFICHE.md` diceva di toglierlo dopo qualche iterazione: la condizione e' scattata, la decisione e' di Fabrizio |
 | **Il peso dei fondali** | Un blocco pesa 300 byte, un fondale a schermo intero puo' pesarne un milione. Finiscono nel sito **e nell'APK**, e chi apre la pagina se li scarica. Vanno tenuti piccoli, in `jpg` o `webp` |
 | **Salva non porta il lavoro nel gioco** | Salva scrive in `localStorage`, solo Scarica + upload su GitHub aggiorna il gioco. La UI lo dice in tre punti, ma resta il modo piu' facile di perdere una serata |
 | **`localStorage` sta in ~5 MB** | Un progetto da cento livelli pieni ci arriva (~2 MB, ma cresce). Ora Salva lo dice invece di fingere, e resta Scarica; la soluzione vera e' IndexedDB |

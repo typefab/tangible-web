@@ -3,9 +3,10 @@
 Mappa del codice di `tilemap-editor.js` (2014 righe, JS vanilla, zero
 dipendenze). Serve a orientarsi prima di toccare qualcosa.
 
-I numeri di riga si riferiscono al commit `758cdbb` **non modificato**. Appena
-inizieremo a editare slitteranno: usa i nomi delle funzioni come ancora, non i
-numeri.
+I numeri di riga si riferiscono al commit `758cdbb` **non modificato**, e non
+slitteranno: questo codice non viene editato. La decisione di adottarlo e' stata
+rovesciata prima di scrivere una riga — il perche' sta in `MODIFICHE.md` — e da
+allora questi file servono solo da consultazione.
 
 ## Il modello dei dati
 
@@ -130,18 +131,26 @@ cambia in una riga.
 | `PAN` | sposta la vista |
 
 `addToUndoStack()` viene chiamata alla fine di ogni operazione: **undo/redo
-esiste gia'** ed e' uno dei motivi per cui adottiamo questo editor invece di
-riscrivere il nostro.
+esiste gia'**. Era uno degli argomenti per adottare questo editor invece del
+nostro; ha perso contro il costo di tenere allineate due implementazioni della
+stessa geometria, e il nostro undo e' finito per costare una manciata di righe.
+Vedi `MODIFICHE.md`.
 
-## Cosa c'e' gia' e non dobbiamo rifare
+## Cosa c'e' qui dentro — e cosa ci manca ancora
 
-- Undo/redo
-- Layer multipli con opacita' e visibilita'
-- Secchiello, gomma, contagocce, pennello, pan
-- Zoom
-- Selezione multipla di tile dal tileset
-- Tile animati, flip orizzontale
-- Interfaccia responsive che scende in verticale su telefono
-- Import da Tiled (`importer-tiled.js`)
+Questo elenco era nato come "cio' che non dobbiamo rifare". E' invecchiato al
+contrario: quasi tutto e' stato fatto lo stesso, senza guardare qui.
 
-E' esattamente la lista di ci&ograve; che mancava al nostro editor fatto in casa.
+| | Da noi |
+|---|---|
+| Undo/redo | c'e', a snapshot dell'intero progetto |
+| Layer con visibilita' | ci sono, e in piu' hanno una quota |
+| Gomma, contagocce, pennello, pan | ci sono; il secchiello e' stato tolto apposta |
+| Zoom | c'e', col pizzico a due dita |
+| Interfaccia che regge il telefono | c'e', misurata a 390x780 e a 780x390 |
+| Selezione multipla di tile dal tileset | **manca** |
+| Tile animati, flip orizzontale | **mancano** |
+| Import da Tiled | **manca** |
+
+Le tre che mancano sono le uniche ragioni per riaprire questi file. Nessuna e'
+in programma: vedi "Quando cancellarlo" in `MODIFICHE.md`.
