@@ -603,24 +603,12 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
     sentinella sono nati fuori, ma il file non si e' ridotto.
 18. **Arte dei blocchi ridisegnata a rombo** (vedi rischi) — lavoro di grafica.
 
-### La pipeline nuova, in ordine di rischio crescente
+### La pipeline nuova
 
-Vanno fatti in questa sequenza perche' ognuno si puo' fermare senza rompere
-quello prima: fino al 21 il gioco pubblicato oggi continua a funzionare
-identico, e il 22 e' l'unico che non torna indietro da solo.
-
-19. **Il Worker che serve il gioco**, al posto di Pages. Stesso gioco, stesso
-    contenuto, indirizzo nuovo. Se qualcosa non torna, `deploy-web.yml` e'
-    ancora li'.
-20. **La porta verso il box**: `/assets/*` che legge in WebDAV, e il catalogo che
-    unisce le tre sorgenti — repository, box, sessione. Il repository resta la
-    riserva, quindi un box irraggiungibile non spegne niente.
-21. **Access davanti al Worker**, con la lista degli indirizzi. E' il passo che
-    rende privati insieme il gioco e gli sprite.
-22. **La repository diventa privata**, e `deploy-web.yml` si spegne. Da qui in
-    poi i minuti di Actions contano: e' il momento di guardare il conto.
-23. **La Action dell'APK si scarica gli sprite dal box** prima di impacchettare.
-24. **Salva scrive `level.json` sul box** — il rischio numero uno cade solo qui.
+Sei passi, dal Worker che serve il gioco fino a Salva che scrive sul box.
+Stanno in [`MIGRAZIONE.md`](MIGRAZIONE.md) insieme allo stato di avanzamento,
+a chi fa cosa e a come si torna indietro da ognuno — qui sarebbero due elenchi
+da tenere allineati a mano, e uno dei due invecchierebbe.
 
 ---
 
