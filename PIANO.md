@@ -967,6 +967,141 @@ test rosso per una ragione che non c'entra con un livello non deve impedire di
 pubblicare il livello. Per invertire la scelta basta un `needs: test` nel job
 `build` di `deploy-web.yml`.
 
+### Lo storage fuori dal repository, e il gioco su invito
+
+**Niente di questa sezione e' costruito.** E' la forma decisa parlandone il 21
+agosto 2026, scritta prima del codice perche' tocca tre cose che oggi reggono il
+progetto: da dove vengono gli sprite, chi puo' aprire il gioco, e cosa fa
+GitHub.
+
+Due problemi, che si sono rivelati lo stesso problema:
+
+1. **Il giro di uno sprite passa da un commit.** Lo fai nell'editor, lo scarichi,
+   lo carichi su GitHub, aspetti il deploy. Dal telefono e' il passaggio
+   peggiore che c'e'.
+2. **Il sito e' pubblico, e con lui gli sprite** — e la repository e' pubblica
+   *perche'* il deploy lo impone: sul piano gratuito Pages pubblica solo da
+   repository pubbliche. Non e' lo sviluppo a tenerla aperta, e' il deploy.
+
+Il primo disegno faceva parlare la pagina direttamente con lo Storage Box. Non
+si puo', per due motivi indipendenti — ed e' bene che restino scritti, perche'
+e' la freccia che verrebbe voglia di rifare.
+
+**Un browser non prende immagini da uno Storage Box.** Hetzner espone SFTP,
+Samba e WebDAV, e non ha un posto dove configurare gli header CORS: il permesso
+che il browser pretende prima di lasciar leggere da un altro dominio. Phaser
+scarica le immagini con XHR — e' lo stesso motivo di `assetsInlineLimit: 0` —
+quindi il ripiego del tag `<img>`, che di CORS farebbe a meno, non vale. E
+l'editor d'immagine **legge i pixel**: su un'immagine arrivata senza CORS il
+canvas diventa "sporco" e `getImageData` smette di funzionare, cioe' cadono
+insieme flood-fill, contagocce, `trimTransparent` e la matita. Mezzo editor.
+
+**E una pagina che sa parlare con lo storage porta dentro di se' la password
+dello storage**, leggibile da chiunque la apra. Che e' l'opposto esatto di
+"sprite privati".
+
+#### Una porta sola
+
+Il gioco viene servito da un **Worker Cloudflare**, e lo stesso Worker fa da
+tramite verso Hetzner: la pagina chiede `/assets/blocks/albero@2.png` al proprio
+stesso indirizzo, il Worker va a prenderlo sul box in WebDAV e lo restituisce.
+
+```
+ FABRIZIO                    GITHUB (repo privata)         CLOUDFLARE
+ ────────                    ─────────────────────         ──────────
+ prompt ──> Claude ──> codice ──┐
+                                └── Action ──> deploy ──> Worker (il gioco)
+                                                            │   ▲
+ sprite ──> HETZNER STORAGE BOX <────────────────────────────┘   │
+ (WebDAV, dal telefono)      ▲                                   │
+                             └── la password sta qui, non        │
+                                 nella pagina                    │
+ check ──────────> codice via email ──> Cloudflare Access ───────┘
+```
+
+Tre conseguenze, e sono tutte e tre il punto:
+
+- **Niente CORS**, perche' non c'e' piu' niente di cross-origin: gioco e sprite
+  arrivano dallo stesso indirizzo. L'editor d'immagine continua a leggere i
+  pixel.
+- **La password non e' mai nella pagina.** Sta nel Worker come segreto, e chi
+  scrive il codice non ha bisogno di vederla.
+- **Il gioco e' privato davvero**: Cloudflare Access davanti al Worker, chi apre
+  il link si fa mandare un codice via email. Sull'indirizzo `workers.dev` si
+  attiva con un click, senza comprare un dominio, e vale anche per `/assets/*`
+  — la stessa porta protegge il gioco e gli sprite.
+
+Costo: **zero**. Worker, Access e il traffico degli asset statici stanno nel
+piano gratuito di Cloudflare; il box Hetzner e' gia' pagato. Il vincolo "solo
+servizi HTTPS e gratuiti" regge.
+
+Cosa vuol dire "privato", detto onesto: **serve un invito per aprire la
+pagina**. Chi e' invitato riceve gli sprite nel proprio browser, e quello e'
+inevitabile — un gioco web manda le immagini a chi lo gioca. La leva e' chi puo'
+aprire, non cosa viene mandato. Fino a 50 indirizzi, gratis.
+
+#### Perche' non bastava rendere privata la repository
+
+Pages da una repository privata **richiede GitHub Pro** (~4$/mese), e anche
+pagando **il sito resta pubblico**: un sito Pages con l'accesso ristretto esiste
+solo su Enterprise Cloud, con un account organizzazione. Quindi la strada
+"repo privata + Pages" costa e non da' comunque la cosa che serviva. Spostato il
+deploy, la repository diventa privata gratis.
+
+#### Cosa cambia in `catalog.ts`: meno di quanto sembri
+
+Il catalogo fa oggi due cose diverse, ed e' questa separazione a rendere il
+cambio piccolo:
+
+- **da dove viene l'elenco** — `import.meta.glob`, che gira alla build
+- **cosa vogliono dire i nomi** — `albero@2.png` e' `albero` largo due celle, la
+  sottocartella e' la categoria, `red_brick` diventa "Red Brick"
+
+**Solo la prima cambia.** WebDAV sa elencare una cartella (`PROPFIND`), quindi
+il Worker chiede al box cosa c'e' dentro e passa alla pagina lo stesso elenco
+che oggi le prepara Vite. Tutte le convenzioni sui nomi valgono identiche su una
+cartella Hetzner: `blocks/natura/albero@2.png` sul box vuol dire quello che vuol
+dire oggi nel repo. **La promessa "carichi un PNG e compare" migliora**:
+spariscono il commit e il minuto di deploy.
+
+E il catalogo sa gia' tenere piu' sorgenti insieme — `runtimeBlocks` sta gia'
+accanto a `BLOCKS`. Il box diventa **una terza sorgente, aggiunta senza togliere
+niente**: gli sprite nel repository restano come riserva, cosi' se Hetzner e'
+irraggiungibile il gioco si apre lo stesso e i test continuano a girare senza
+rete. Il che rende la migrazione reversibile: se non funziona, si stacca.
+
+Un dettaglio che si scoprirebbe a meta' strada, quindi meglio scritto: nel
+runtime dei Worker **non c'e' `DOMParser`**, e la risposta di `PROPFIND` e' XML.
+L'elenco va estratto a mano dagli `<d:href>`, non con un parser.
+
+#### Il regalo: Salva smette di mentire
+
+Il rischio numero uno del progetto e' che *Salva* scrive in `localStorage` e
+solo *Scarica* + upload su GitHub aggiorna il gioco. Con una porta che sa anche
+**scrivere**, `level.json` va sul box e Salva diventa vero. Non e' il motivo per
+cui questo lavoro e' nato, ma e' la cosa che lo ripaga.
+
+#### L'APK
+
+L'APK deve continuare a funzionare, quindi non puo' dipendere dalla rete ne'
+passare da Access. La Action che lo costruisce **si scarica gli sprite dal box
+al momento della build** e li impacchetta: l'APK resta giocabile offline, ed e'
+la fotografia degli sprite di quel giorno. Chi ce l'ha installato non vede gli
+sprite aggiunti dopo, finche' non se lo rifa'.
+
+#### Il prezzo, per intero
+
+- **I minuti di Actions cominciano a contare.** Su repository pubbliche sono
+  illimitati; su repository private il piano gratuito ne da' **2000 al mese**.
+  `test.yml` gira a ogni push, e ha un tetto di 15 minuti a run: il conto va
+  guardato, e se stringe la build del sito puo' passare a Cloudflare, che compila
+  anche da repository private.
+- **Tre servizi invece di uno.** Oggi il gioco cade solo se cade GitHub; domani
+  anche se cade Cloudflare o Hetzner.
+- **Il primo caricamento e' piu' lento**, perche' gli sprite non sono piu' dentro
+  al pacchetto. La cache del Worker lo rimette a posto, ma e' da misurare — non
+  da promettere.
+
 ---
 
 ## 5. Stato attuale
@@ -1318,6 +1453,25 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
     sentinella sono nati fuori, ma il file non si e' ridotto.
 18. **Arte dei blocchi ridisegnata a rombo** (vedi rischi) — lavoro di grafica.
 
+### La pipeline nuova, in ordine di rischio crescente
+
+Vanno fatti in questa sequenza perche' ognuno si puo' fermare senza rompere
+quello prima: fino al 21 il gioco pubblicato oggi continua a funzionare
+identico, e il 22 e' l'unico che non torna indietro da solo.
+
+19. **Il Worker che serve il gioco**, al posto di Pages. Stesso gioco, stesso
+    contenuto, indirizzo nuovo. Se qualcosa non torna, `deploy-web.yml` e'
+    ancora li'.
+20. **La porta verso il box**: `/assets/*` che legge in WebDAV, e il catalogo che
+    unisce le tre sorgenti — repository, box, sessione. Il repository resta la
+    riserva, quindi un box irraggiungibile non spegne niente.
+21. **Access davanti al Worker**, con la lista degli indirizzi. E' il passo che
+    rende privati insieme il gioco e gli sprite.
+22. **La repository diventa privata**, e `deploy-web.yml` si spegne. Da qui in
+    poi i minuti di Actions contano: e' il momento di guardare il conto.
+23. **La Action dell'APK si scarica gli sprite dal box** prima di impacchettare.
+24. **Salva scrive `level.json` sul box** — il rischio numero uno cade solo qui.
+
 ---
 
 ## 8. Rischi aperti
@@ -1339,4 +1493,9 @@ codice che lo usa. Una cartella vuota non aiuta nessuno.
 | **Sprite grandi e peso del PNG** | Il lato in pixel arriva a 1024 e la sorgente di lavoro a 2048. Uno sprite a quella risoluzione non pesa piu' come i 300 byte di `basic.png`, e finisce nel sito e nell'APK come i fondali. Vale la stessa regola: tenerli piccoli quanto basta |
 | Lo sfondo tolto in automatico e' grezzo | Flood-fill con una soglia: sugli sfondi piatti va, sulle foto vere non e' detto. Il contagocce sposta il riferimento e la matita e' la scialuppa, ma su un ritaglio complesso resta lavoro manuale |
 | ~~Undo a snapshot dell'intero progetto~~ | **Caduto.** Lo snapshot resta l'intero progetto, ma i livelli fermi ci finiscono per riferimento: 0,02 ms con cento livelli, contro 5,14 |
+| **Tre servizi invece di uno** | Con la pipeline nuova il gioco cade se cade GitHub, **o** Cloudflare, **o** Hetzner. Oggi il punto di guasto e' uno solo. E' il prezzo di avere gli sprite fuori dal repository |
+| **I minuti di Actions con la repo privata** | Su repository pubbliche sono illimitati, su private il piano gratuito ne da' 2000 al mese. `test.yml` gira a ogni push col suo tetto di 15 minuti: se stringe, la build del sito passa a Cloudflare |
+| **Un APK e' la fotografia di un giorno** | Gli sprite ci finiscono dentro al momento della build. Chi lo ha installato non vede quelli aggiunti dopo, e non ha modo di accorgersene |
+| **"Privato" vuol dire su invito, non invisibile** | Chi e' nella lista riceve gli sprite nel proprio browser: e' come funziona il web. La leva e' chi puo' aprire la pagina, non cosa le viene mandato |
+| Un segreto in piu' da custodire | La password del box vive nel Worker e nei segreti delle Action. Conviene un sotto-account Hetzner limitato alla cartella del gioco, cosi' se sfugge non tocca il resto del box |
 | Ciclo commit -> gioco live ~1 minuto | Accettato: e' il prezzo del vincolo "zero installazioni" |
