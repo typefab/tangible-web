@@ -1,7 +1,32 @@
 # Istruzioni per Claude Code
 
-Leggi questo file prima di toccare il codice. `PIANO.md` ha il ragionamento
-dietro ogni scelta; qui c'e' solo quello che serve per non fare danni.
+Leggi questo file prima di toccare il codice: qui c'e' solo quello che serve
+per non fare danni. Il ragionamento dietro ogni scelta sta altrove, e la
+tabella qui sotto dice dove.
+
+## Dove sta scritto cosa
+
+**Questo e' l'unico file che leggi sempre per intero.** Gli altri si aprono
+quando servono, e questa tabella evita di aprirli tutti.
+
+| Se stai lavorando su | Apri |
+|---|---|
+| griglia, costanti, layer, profondita' di disegno, meccaniche, player | [`docs/GIOCO.md`](docs/GIOCO.md) |
+| strumenti dell'editor, gesti, pannelli, sprite fatti nel browser | [`docs/EDITOR.md`](docs/EDITOR.md) |
+| catalogo degli sprite, formato dei livelli, fondali, taglia e scala, test | [`docs/CONDIVISO.md`](docs/CONDIVISO.md) |
+| la migrazione a storage e gioco privati | [`MIGRAZIONE.md`](MIGRAZIONE.md) |
+| dove siamo, cosa non e' verificato, rischi aperti, prossimi passi | [`PIANO.md`](PIANO.md) |
+| come si usa il gioco e l'editor, dal lato di Fabrizio | [`README.md`](README.md) |
+
+Ogni file di `docs/` si apre con l'elenco delle sue sezioni: cerca li' il
+titolo e leggi quel pezzo, invece del file intero. Se non trovi dove va una
+cosa nuova, la regola e' la cartella del codice che descrive — `src/editor/`
+in `EDITOR.md`, `src/grid/` e `src/mechanics/` in `GIOCO.md`,
+`src/assets/catalog.ts`, `src/level/` e `test/` in `CONDIVISO.md`.
+
+**Il file piu' pesante del repository non e' un documento**: `LevelEditor.ts`
+sta a 100 KB, piu' di tutta la documentazione che serve in una sessione tipica
+messa insieme. Leggine dei pezzi, non tutto.
 
 ## Cos'e' questo progetto
 
