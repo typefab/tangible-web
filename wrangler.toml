@@ -1,0 +1,30 @@
+# Il gioco servito da un Worker Cloudflare.
+#
+# **Non e' l'indirizzo di prova, e' l'indirizzo definitivo.** Il nome resta
+# `tangible-web` fin da subito perche' rinominare un Worker ne cambia l'URL, e
+# un indirizzo che cambia e' un segnalibro che si rompe. La qualita' di "prova"
+# gliela da' il fatto che Pages e' ancora vivo accanto, non il suo nome: il
+# passo 4 di MIGRAZIONE.md spegne l'altro e questo resta dov'e'.
+name = "tangible-web"
+
+# Serve solo a fissare il comportamento del runtime a una data nota: senza,
+# un aggiornamento di Cloudflare potrebbe cambiare qualcosa sotto i piedi.
+compatibility_date = "2026-08-21"
+
+[assets]
+# Quello che produce `npm run build`. Nessun `main`: per adesso il Worker non
+# esegue codice, si limita a servire i file — e le richieste ai file statici
+# non consumano quota. Il codice arriva al passo 2, quando dovra' fare da
+# tramite verso il box.
+directory = "./dist"
+
+# `not_found_handling` resta al suo valore di default, che risponde 404.
+#
+# La tentazione e' metterlo a "single-page-application", che rimanda tutto a
+# index.html. Sarebbe un guasto silenzioso: un PNG mancante tornerebbe **200
+# con dentro una pagina HTML**, e il loader di Phaser — che scarica in XHR — si
+# ritroverebbe del markup dove aspetta un'immagine. Un 404 vero si legge nella
+# console; una pagina HTML travestita da sprite no.
+#
+# Qui non serve: `?editor=1` e `?level=2` sono stringhe di query, non percorsi,
+# quindi arrivano tutte a `/` e cioe' a index.html.

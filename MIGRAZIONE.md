@@ -13,7 +13,7 @@ cosa fare, in che ordine, chi lo fa e come si capisce se e' andato.
 
 | # | Passo | Chi | Stato |
 |---|---|---|---|
-| 1 | Il Worker serve il gioco | io + pannello Cloudflare | **da fare** |
+| 1 | Il Worker serve il gioco | io + pannello Cloudflare | **codice pronto, aspetta i segreti** |
 | 2 | La porta sul box | io + sotto-account Hetzner | da fare |
 | 3 | Access davanti al Worker | solo tu, dal pannello | da fare |
 | 4 | La repo diventa privata, Pages si spegne | solo tu | da fare |
@@ -26,10 +26,16 @@ prossima ricomincia a indovinare.
 
 ## L'indirizzo di prova
 
-Il gioco vero resta su Pages fino al passo 4. Nel frattempo il Worker si
-pubblica a un **secondo indirizzo** — `tangible-prova.workers.dev` o come lo
-chiami — e i passi 1, 2 e 3 si provano li' sopra senza che niente di vivo si
-rompa. Il passo 4 diventa solo "spegni il vecchio".
+Il gioco vero resta su Pages fino al passo 4. Nel frattempo il Worker vive a un
+**secondo indirizzo** — `tangible-web.<sottodominio>.workers.dev` — e i passi 1,
+2 e 3 si provano li' sopra senza che niente di vivo si rompa. Il passo 4 diventa
+solo "spegni il vecchio".
+
+**Il Worker si chiama `tangible-web`, non `tangible-prova`.** Rinominare un
+Worker ne cambia l'URL, e un indirizzo che cambia e' un segnalibro che si
+rompe: se lo chiamassimo "prova" oggi, al passo 4 dovremmo o rinominarlo — e
+perdere l'indirizzo — o tenerci per sempre un nome che mente. A renderlo una
+prova e' il fatto che Pages sia ancora vivo accanto, non come si chiama.
 
 E' questo il modo di "provare prima di mergiare", non un branch lungo: **meta'
 di questi passi non e' codice**, sono operazioni in un pannello, e un branch
@@ -63,15 +69,36 @@ i registri dei pacchetti e GitHub. Verificato il 21 agosto 2026 — `403` da
 **Chi**: io scrivo la configurazione `wrangler` e il workflow; tu fai l'account
 Cloudflare e metti i segreti.
 
-**Prima serve**: un account Cloudflare; un API token con permesso di scrivere i
-Worker; `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` nei Secrets del
-repository.
+**Il codice c'e' gia'**: `wrangler.toml` e `.github/workflows/deploy-worker.yml`.
+Manca solo di dargli le chiavi.
 
-**Fatto quando**: l'indirizzo di prova mostra il gioco identico a Pages, e Pages
-continua a girare come prima.
+**Prima serve**, tutto dal browser:
 
-**Si torna indietro**: si cancella il Worker dal pannello. `deploy-web.yml` non
-e' stato toccato.
+1. un account Cloudflare;
+2. un API token con permesso di scrivere i Worker;
+3. `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` in *Settings → Secrets and
+   variables → Actions → **Secrets***;
+4. **poi**, quando il primo avvio a mano e' andato bene, la variabile
+   `DEPLOY_WORKER` a `true` in *… → **Variables***. Finche' non c'e', il
+   workflow si salta invece di fallire: un push su `main` non deve diventare
+   rosso per una cosa non ancora configurata.
+
+**La prima prova**: *Actions → Deploy Worker → Run workflow*. L'avvio a mano
+gira anche senza la variabile.
+
+**Fatto quando**: l'indirizzo del Worker mostra il gioco identico a Pages —
+compresi gli sprite e un livello caricato — e Pages continua a girare come
+prima.
+
+**Si torna indietro**: si cancella il Worker dal pannello e si toglie la
+variabile. `deploy-web.yml` non e' stato toccato, e il gioco vero non se n'e'
+accorto.
+
+**Cosa guardare per primo se qualcosa non va**: gli sprite. `vite.config.ts` ha
+`base: ''`, cioe' percorsi relativi, scelti per la sottocartella di Pages e per
+il `file://` dell'APK; un Worker serve dalla radice, dove i relativi funzionano
+lo stesso — ma e' li' che un errore si vedrebbe, e si vedrebbe come blocchi che
+non compaiono, non come una pagina bianca.
 
 ### 2. La porta sul box
 

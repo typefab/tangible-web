@@ -1,0 +1,54 @@
+name: Deploy Worker
+
+# Pubblica il gioco su un Worker Cloudflare.
+#
+# Convive con `deploy-web.yml` di proposito: finche' la migrazione non e'
+# finita il gioco vero sta su Pages, e questo e' l'indirizzo dove si prova che
+# il Worker serve la stessa cosa. Il passo 4 di MIGRAZIONE.md spegne l'altro.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Come per Pages: una run appesa la cancella il push successivo.
+concurrency:
+  group: worker
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    # Finche' i segreti di Cloudflare non ci sono, un push su main non deve
+    # diventare rosso per una cosa che non e' ancora stata configurata: il
+    # lavoro si salta invece di fallire. Quando i due segreti sono a posto,
+    # metti la variabile DEPLOY_WORKER a "true" in
+    # Settings -> Secrets and variables -> Actions -> Variables.
+    #
+    # L'avvio a mano funziona comunque, cosi' la prima prova si fa senza
+    # toccare niente.
+    if: vars.DEPLOY_WORKER == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    # Un tetto come su test.yml: senza, una run impiantata lascia il gruppo
+    # occupato per sei ore, ed e' gia' successo.
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # `npx` prende il wrangler di `node_modules`, quello con la versione
+      # fissata nel lockfile: senza, ne scaricherebbe uno nuovo a ogni run e la
+      # build cambierebbe da sola.
+      - name: Deploy
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
