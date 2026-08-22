@@ -13,7 +13,7 @@ cosa fare, in che ordine, chi lo fa e come si capisce se e' andato.
 
 | # | Passo | Chi | Stato |
 |---|---|---|---|
-| 1 | Il Worker serve il gioco | io + pannello Cloudflare | **codice pronto, aspetta i segreti** |
+| 1 | Il Worker serve il gioco | io + pannello Cloudflare | **fatto il 22 agosto 2026** — resta da guardarlo |
 | 2 | La porta sul box | io + sotto-account Hetzner | da fare |
 | 3 | Access davanti al Worker | solo tu, dal pannello | da fare |
 | 4 | La repo diventa privata, Pages si spegne | solo tu | da fare |
@@ -30,6 +30,9 @@ Il gioco vero resta su Pages fino al passo 4. Nel frattempo il Worker vive a un
 **secondo indirizzo** — `tangible-web.<sottodominio>.workers.dev` — e i passi 1,
 2 e 3 si provano li' sopra senza che niente di vivo si rompa. Il passo 4 diventa
 solo "spegni il vecchio".
+
+L'indirizzo, da quando il primo deploy e' andato:
+**https://tangible-web.fabriziod-marsico.workers.dev**
 
 **Il Worker si chiama `tangible-web`, non `tangible-prova`.** Rinominare un
 Worker ne cambia l'URL, e un indirizzo che cambia e' un segnalibro che si
@@ -75,10 +78,15 @@ Manca solo di dargli le chiavi.
 **Prima serve**, tutto dal browser:
 
 1. un account Cloudflare;
-2. un API token con permesso di scrivere i Worker;
-3. `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` in *Settings → Secrets and
+2. **un sottodominio `workers.dev` registrato sull'account.** Si vede in
+   *Workers & Pages*, riquadro *Account details* a destra. Senza, `wrangler`
+   lo chiede in modo interattivo — e in una Action non c'e' nessuno che
+   risponde, quindi si ferma con un errore che parla di rotte. **Ci siamo
+   sbattuti**: e' stato il primo deploy fallito;
+3. un API token con permesso di scrivere i Worker;
+4. `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` in *Settings → Secrets and
    variables → Actions → **Secrets***;
-4. **poi**, quando il primo avvio a mano e' andato bene, la variabile
+5. **poi**, quando il primo avvio a mano e' andato bene, la variabile
    `DEPLOY_WORKER` a `true` in *… → **Variables***. Finche' non c'e', il
    workflow si salta invece di fallire: un push su `main` non deve diventare
    rosso per una cosa non ancora configurata.
@@ -89,6 +97,11 @@ gira anche senza la variabile.
 **Fatto quando**: l'indirizzo del Worker mostra il gioco identico a Pages —
 compresi gli sprite e un livello caricato — e Pages continua a girare come
 prima.
+
+**Dove siamo**: il deploy e' passato il 22 agosto 2026, 42 file caricati su 60,
+e Cloudflare ha risposto l'indirizzo. **Che il gioco si veda davvero non e'
+ancora verificato**: da questa sessione l'indirizzo non si apre, e la policy di
+rete risponde 403. Lo guarda Fabrizio.
 
 **Si torna indietro**: si cancella il Worker dal pannello e si toglie la
 variabile. `deploy-web.yml` non e' stato toccato, e il gioco vero non se n'e'
