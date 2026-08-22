@@ -19,6 +19,7 @@
     "@capacitor/core": "^6.1.2",
     "@playwright/test": "1.62.1",
     "typescript": "^5.4.5",
-    "vite": "^5.2.11"
+    "vite": "^5.2.11",
+    "wrangler": "^4.0.0"
   }
 }

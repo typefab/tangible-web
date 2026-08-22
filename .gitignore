@@ -9,5 +9,8 @@ android/
 playwright-report/
 test-results/
 
+# Stato locale di wrangler: cache e build intermedie del Worker.
+.wrangler/
+
 *.local
 .DS_Store
