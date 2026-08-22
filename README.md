@@ -22,17 +22,32 @@ sincronizzare.
 ```
  TU (browser)                        GITHUB                    IO
  ─────────────                       ──────                    ──
- sprite: piskelapp.com      ┐
- livelli: spritefusion.com  ├──> upload drag&drop ──> repo <── Claude Code
- (esporta Tiled JSON)       ┘                          │        (codice)
-                                                       │
-                                    GitHub Actions <───┘
-                                     ├── Pages ──> giochi al link, anche da telefono
-                                     └── APK ────> lo installi sul telefono
+ sprite e livelli:          ┐
+ l'editor del gioco stesso  ├──> scarichi e carichi ──> repo <── Claude Code
+ (?editor=1)                ┘     su GitHub             │        (codice)
+                                                        │
+                                     GitHub Actions <───┘
+                                      ├── Pages ──> giochi al link, anche da telefono
+                                      └── APK ────> lo installi sul telefono
 ```
 
 Nessuno dei due tocca il lavoro dell'altro: tu i file in `public/`, io i file
 in `src/`.
+
+## Cosa sta per cambiare
+
+Questo giro sta per cambiare in tre punti — e **non e' ancora cambiato**.
+Finche' questa sezione e' qui, quello che leggi sotto e' quello che si fa oggi.
+
+| Oggi | Dopo |
+|---|---|
+| lo sprite lo scarichi e lo committi | lo metti sul box Hetzner, c'e' subito |
+| Salva scrive solo dentro il browser | Salva scrive i livelli sul box |
+| il gioco e' pubblico a un link | il gioco si apre su invito, con un codice via email |
+
+Il perche' sta in [`PIANO.md`](PIANO.md) §3; i passi, lo stato di avanzamento e
+la via del ritorno da ognuno in [`MIGRAZIONE.md`](MIGRAZIONE.md). Quando
+finisce, questa sezione sparisce e il resto del README si aggiorna.
 
 ## Come ci giochi
 
@@ -44,6 +59,10 @@ Da abilitare una volta sola: *Settings → Pages → Source: GitHub Actions*.
 **Come APK.** Vai nella tab *Actions* → *Build APK* → *Run workflow*. A fine
 build l'APK e' negli *Artifacts* della run. Sul telefono va autorizzata
 l'installazione da origini sconosciute (e' un APK debug, non firmato).
+
+Con la migrazione **l'indirizzo web cambia** — il gioco passa da Pages a un
+Worker — e vorra' un invito per aprirsi. L'APK invece resta come adesso: si
+installa e si gioca senza rete, perche' gli sprite ce li mette dentro la build.
 
 ## L'editor di scene
 
@@ -281,6 +300,12 @@ blocco non c'e'. E' anche il motivo per cui gli sprite stanno in `src/` e non in
 `public/`: una pagina web non puo' elencare il contenuto di una cartella remota,
 quindi da `public/` servirebbe un elenco scritto a mano.
 
+**E' questo il prezzo che la migrazione toglie.** Il box sa elencare una
+cartella, quindi sparisce sia il commit sia il minuto — e le regole sui nomi
+restano identiche: `albero@2.png` in `blocks/natura/` sul box vuol dire quello
+che vuol dire oggi nel repository. Non e' ancora vero: vedi
+[`MIGRAZIONE.md`](MIGRAZIONE.md).
+
 ### Fare uno sprite da un'immagine
 
 Nel cassetto **🎨 → Aggiungi sprite**. Si apre un editor d'immagine che gira
@@ -346,7 +371,9 @@ sempre — l'editor gira su una pagina statica e non puo' scrivere nel repositor
 
 **Attento a non fidarti troppo**: da quando gli sprite sopravvivono alla
 ricarica sembrano definitivi, ma per chiunque altro — e nel gioco pubblicato —
-non esistono finche' non fai commit. E se un giorno superi lo spazio disponibile,
+non esistono finche' non fai commit. (Dopo la migrazione il commit diventa un
+caricamento sul box, ma **l'avvertimento resta lo stesso**: uno sprite che sta
+solo in questo browser non e' uno sprite che esiste.) E se un giorno superi lo spazio disponibile,
 la barra ti dice quali sprite non sono entrati nel salvataggio.
 
 Se riapri un lavoro e manca uno sprite, l'editor te lo dice e **non butta via i
@@ -357,7 +384,9 @@ appena committi il PNG.
 
 | File | Cosa contiene |
 |---|---|
-| `CLAUDE.md` | Le istruzioni per chi scrive il codice: confini, invarianti, comandi. |
+| `CLAUDE.md` | Le istruzioni per chi scrive il codice: confini, invarianti, e la mappa di quale file aprire per quale lavoro. |
+| `PIANO.md`, `docs/` | Il perche' dietro ogni scelta, lo stato, i rischi aperti. `docs/` e' diviso in gioco, editor e condiviso. |
+| `MIGRAZIONE.md` | I passi della migrazione a storage e gioco privati. Si cancella quando e' finita. |
 | `src/config.ts` | Le costanti di gioco. |
 | `src/assets/catalog.ts` | L'elenco degli sprite, generato dal contenuto delle cartelle. |
 | `src/grid/` | La geometria della griglia, isolata dietro un'interfaccia. |
